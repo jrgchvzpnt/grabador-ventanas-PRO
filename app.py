@@ -90,7 +90,7 @@ except ImportError:
 OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recordings")
 FPS = 15
 AUDIO_CHUNK = 1024
-PREVIEW_SIZE = (280, 158)  # 16:9
+PREVIEW_SIZE = (220, 124)  # 16:9
 PREVIEW_INTERVAL_MS = 200
 
 # Formatos de video disponibles para exportar (video/audio + contenedor).
@@ -100,29 +100,29 @@ PREVIEW_INTERVAL_MS = 200
 FORMAT_OPTIONS = {
     "MP4 (.mp4)": {
         "ext": ".mp4",
-        "video_args_live": ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p"],
-        "audio_args": ["-c:a", "aac", "-b:a", "128k"],
+        "video_args_live": ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p"],
+        "audio_args": ["-c:a", "aac", "-b:a", "192k"],
     },
     "MKV (.mkv)": {
         "ext": ".mkv",
-        "video_args_live": ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p"],
-        "audio_args": ["-c:a", "aac", "-b:a", "128k"],
+        "video_args_live": ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p"],
+        "audio_args": ["-c:a", "aac", "-b:a", "192k"],
     },
     "MOV (.mov)": {
         "ext": ".mov",
-        "video_args_live": ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p"],
-        "audio_args": ["-c:a", "aac", "-b:a", "128k"],
+        "video_args_live": ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p"],
+        "audio_args": ["-c:a", "aac", "-b:a", "192k"],
     },
     "AVI (.avi)": {
         "ext": ".avi",
-        "video_args_live": ["-c:v", "libxvid", "-qscale:v", "4", "-tag:v", "XVID"],
+        "video_args_live": ["-c:v", "libxvid", "-qscale:v", "2", "-tag:v", "XVID"],
         "audio_args": ["-c:a", "libmp3lame", "-b:a", "192k"],
     },
     "WEBM (.webm)": {
         "ext": ".webm",
         "video_args_live": [
-            "-c:v", "libvpx-vp9", "-crf", "32", "-b:v", "0", "-pix_fmt", "yuv420p",
-            "-deadline", "realtime", "-cpu-used", "8",
+            "-c:v", "libvpx-vp9", "-crf", "28", "-b:v", "0", "-pix_fmt", "yuv420p",
+            "-deadline", "realtime", "-cpu-used", "6",
         ],
         "audio_args": ["-c:a", "libopus", "-b:a", "128k"],
     },
@@ -184,9 +184,14 @@ class RecorderApp:
         self.root = root
         self.root.title("Grabador de ventana")
         screen_height = self.root.winfo_screenheight()
-        window_height = min(760, screen_height - 40)
-        self.root.geometry(f"480x{window_height}+0+0")
+        window_height = min(660, screen_height - 40)
+        screen_width = self.root.winfo_screenwidth()
+        window_width = min(500, screen_width - 40)
+        x = max(0, (screen_width - window_width) // 2)
+        y = max(0, (screen_height - window_height) // 2)
+        self.root.geometry(f"{window_width}x{window_height}+{x}+{y}")
         self.root.resizable(False, False)
+        self._configure_styles()
 
         self.windows = []
         self.recording = False
@@ -230,58 +235,159 @@ class RecorderApp:
         self._show_placeholder_preview("Sin grabación en curso")
         self.root.after(PREVIEW_INTERVAL_MS, self._update_preview)
 
+    def _configure_styles(self):
+        style = ttk.Style(self.root)
+        if "clam" in style.theme_names():
+            style.theme_use("clam")
+
+        self.root.configure(bg="#f3f5f8")
+        style.configure("App.TFrame", background="#f3f5f8")
+        style.configure("Card.TLabelframe", background="#ffffff", bordercolor="#dce2ea")
+        style.configure(
+            "Card.TLabelframe.Label",
+            background="#ffffff",
+            foreground="#526174",
+            font=("Segoe UI", 9, "bold"),
+        )
+        style.configure("Card.TFrame", background="#ffffff")
+        style.configure(
+            "AppTitle.TLabel",
+            background="#f3f5f8",
+            foreground="#17263c",
+            font=("Segoe UI", 15, "bold"),
+        )
+        style.configure(
+            "Subtitle.TLabel",
+            background="#f3f5f8",
+            foreground="#64748b",
+            font=("Segoe UI", 8),
+        )
+        style.configure(
+            "Field.TLabel",
+            background="#ffffff",
+            foreground="#344256",
+            font=("Segoe UI", 9, "bold"),
+        )
+        style.configure(
+            "Hint.TLabel",
+            background="#ffffff",
+            foreground="#738196",
+            font=("Segoe UI", 8),
+        )
+        style.configure(
+            "Timer.TLabel",
+            background="#17263c",
+            foreground="#f8fafc",
+            font=("Consolas", 18, "bold"),
+        )
+        style.configure(
+            "TimerState.TLabel",
+            background="#17263c",
+            foreground="#aab8ca",
+            font=("Segoe UI", 8, "bold"),
+        )
+        style.configure(
+            "Status.TLabel",
+            background="#f3f5f8",
+            foreground="#526174",
+            font=("Segoe UI", 9),
+        )
+        style.configure(
+            "Primary.TButton",
+            background="#1769aa",
+            foreground="#ffffff",
+            font=("Segoe UI", 9, "bold"),
+            padding=(8, 4),
+        )
+        style.map(
+            "Primary.TButton",
+            background=[("active", "#12578f"), ("disabled", "#a9bdcf")],
+            foreground=[("disabled", "#f4f7fa")],
+        )
+        style.configure(
+            "Danger.TButton",
+            background="#bd3d45",
+            foreground="#ffffff",
+            font=("Segoe UI", 9, "bold"),
+            padding=(8, 4),
+        )
+        style.map(
+            "Danger.TButton",
+            background=[("active", "#a52c35"), ("disabled", "#d9b2b5")],
+            foreground=[("disabled", "#f8f3f3")],
+        )
+        style.configure("TEntry", padding=(5, 3))
+        style.configure("TCombobox", padding=(4, 3))
+        style.configure(
+            "TButton", font=("Segoe UI", 8), padding=(5, 2)
+        )
+        style.configure(
+            "TCheckbutton",
+            background="#ffffff",
+            foreground="#344256",
+            font=("Segoe UI", 8),
+        )
+        style.map("TCheckbutton", background=[("active", "#ffffff")])
+        style.configure(
+            "TProgressbar",
+            troughcolor="#e5eaf0",
+            background="#2187c9",
+            bordercolor="#e5eaf0",
+            lightcolor="#2187c9",
+            darkcolor="#2187c9",
+        )
+
     def _build_ui(self):
-        pad = {"padx": 8, "pady": 1}
+        content = ttk.Frame(self.root, style="App.TFrame", padding=(12, 7, 12, 7))
+        content.pack(fill="both", expand=True)
 
-        # --- Abrir video por URL (opcional, no maneja credenciales) ---
-        open_frame = ttk.Frame(self.root)
-        open_frame.pack(fill="x", **pad)
+        ttk.Label(content, text="Grabador de ventanas", style="AppTitle.TLabel").pack(
+            anchor="w"
+        )
+        ttk.Label(
+            content,
+            text="Captura una ventana con audio y vista previa en vivo.",
+            style="Subtitle.TLabel",
+        ).pack(anchor="w", pady=(0, 5))
 
-        ttk.Label(open_frame, text="Abrir video (URL, opcional):").pack(anchor="w")
+        source_card = ttk.LabelFrame(
+            content, text="  FUENTE DE VIDEO  ", style="Card.TLabelframe", padding=7
+        )
+        source_card.pack(fill="x", pady=(0, 5))
 
-        open_row = ttk.Frame(open_frame)
-        open_row.pack(fill="x", pady=(4, 0))
-
+        open_row = ttk.Frame(source_card, style="Card.TFrame")
+        open_row.pack(fill="x", pady=(0, 4))
+        ttk.Label(open_row, text="URL", style="Field.TLabel", width=8).pack(
+            side="left"
+        )
         self.url_var = tk.StringVar()
         self.url_entry = ttk.Entry(open_row, textvariable=self.url_var)
         self.url_entry.pack(side="left", fill="x", expand=True)
-
         ttk.Button(open_row, text="Abrir", command=self.open_video_url).pack(
-            side="left", padx=(6, 0)
+            side="left", padx=(7, 0)
         )
-
-        ttk.Label(
-            self.root,
-            text=(
-                "Abre el video en el navegador y selecciona su ventana."
-            ),
-            foreground="#888",
-            wraplength=440,
-            justify="left",
-        ).pack(anchor="w", padx=8)
-
-        top_frame = ttk.Frame(self.root)
-        top_frame.pack(fill="x", **pad)
-
-        ttk.Label(top_frame, text="Ventana a grabar:").pack(anchor="w")
-
-        row = ttk.Frame(top_frame)
-        row.pack(fill="x", pady=(4, 0))
-
-        self.combo = ttk.Combobox(row, state="readonly", width=48)
+        window_row = ttk.Frame(source_card, style="Card.TFrame")
+        window_row.pack(fill="x")
+        ttk.Label(window_row, text="Ventana", style="Field.TLabel", width=8).pack(
+            side="left"
+        )
+        self.combo = ttk.Combobox(window_row, state="readonly", width=30)
         self.combo.pack(side="left", fill="x", expand=True)
-
-        ttk.Button(row, text="Actualizar", command=self.refresh_windows).pack(
-            side="left", padx=(6, 0)
+        ttk.Button(window_row, text="Actualizar", command=self.refresh_windows).pack(
+            side="left", padx=(7, 0)
         )
 
-        options_frame = ttk.Frame(self.root)
-        options_frame.pack(fill="x", padx=8)
+        settings_card = ttk.LabelFrame(
+            content, text="  AJUSTES  ", style="Card.TLabelframe", padding=7
+        )
+        settings_card.pack(fill="x", pady=(0, 5))
 
+        options_frame = ttk.Frame(settings_card, style="Card.TFrame")
+        options_frame.pack(fill="x", pady=(0, 2))
         self.audio_var = tk.BooleanVar(value=HAS_AUDIO)
         audio_check = ttk.Checkbutton(
             options_frame,
-            text="Grabar también el audio del sistema",
+            text="Audio del sistema",
             variable=self.audio_var,
         )
         audio_check.pack(side="left", anchor="w")
@@ -292,173 +398,205 @@ class RecorderApp:
         self.play_on_start_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(
             options_frame,
-            text="Play al iniciar (video pausado)",
+            text="Sincronizar Play/Pausa del video",
             variable=self.play_on_start_var,
-        ).pack(side="left", anchor="w", padx=(8, 0))
+        ).pack(side="left", anchor="w", padx=(12, 0))
 
-        # --- Volumen del sistema (para no tener que salir de la app) ---
-        volume_frame = ttk.Frame(self.root)
-        volume_frame.pack(fill="x", **pad)
-
-        ttk.Label(volume_frame, text="Volumen de la PC:").pack(anchor="w")
-
-        volume_row = ttk.Frame(volume_frame)
-        volume_row.pack(fill="x", pady=(4, 0))
-
+        volume_row = ttk.Frame(settings_card, style="Card.TFrame")
+        volume_row.pack(fill="x", pady=(1, 3))
+        ttk.Label(volume_row, text="Volumen", style="Field.TLabel").pack(
+            side="left", padx=(0, 8)
+        )
         initial_percent = self._get_current_volume_percent()
         self.volume_var = tk.IntVar(value=initial_percent)
-
         self.volume_scale = ttk.Scale(
-            volume_row,
-            from_=0,
-            to=100,
-            orient="horizontal",
+            volume_row, from_=0, to=100, orient="horizontal"
         )
         self.volume_scale.pack(side="left", fill="x", expand=True)
-
-        self.volume_label = ttk.Label(volume_row, text=f"{initial_percent}%", width=5)
-        self.volume_label.pack(side="left", padx=(6, 0))
-
-        # El valor inicial se fija sin disparar el cambio de volumen real
-        # (el callback recién se conecta después de posicionar la barra).
+        self.volume_label = ttk.Label(
+            volume_row, text=f"{initial_percent}%", width=5, style="Field.TLabel"
+        )
+        self.volume_label.pack(side="left", padx=(8, 0))
         self.volume_scale.set(initial_percent)
         self.volume_scale.config(command=self._on_volume_change)
-
         if not self.volume_available:
             self.volume_scale.config(state="disabled")
 
-        # --- Formato de video de salida ---
-        format_frame = ttk.Frame(self.root)
-        format_frame.pack(fill="x", **pad)
-
-        ttk.Label(format_frame, text="Formato de video:").pack(anchor="w")
-
+        output_row = ttk.Frame(settings_card, style="Card.TFrame")
+        output_row.pack(fill="x", pady=(0, 3))
+        format_column = ttk.Frame(output_row, style="Card.TFrame")
+        format_column.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        ttk.Label(format_column, text="Formato", style="Field.TLabel").pack(anchor="w")
         self.format_var = tk.StringVar(value=DEFAULT_FORMAT)
         self.format_combo = ttk.Combobox(
-            format_frame,
+            format_column,
             textvariable=self.format_var,
             state="readonly",
             values=list(FORMAT_OPTIONS.keys()),
         )
-        self.format_combo.pack(fill="x", pady=(4, 0))
+        self.format_combo.pack(fill="x", pady=(3, 0))
         self.format_combo.bind("<<ComboboxSelected>>", self._on_format_change)
 
-        # --- Ubicación y nombre de guardado ---
-        save_frame = ttk.Frame(self.root)
-        save_frame.pack(fill="x", **pad)
+        duration_column = ttk.Frame(output_row, style="Card.TFrame")
+        duration_column.pack(side="left")
+        ttk.Label(
+            duration_column, text="Duración máx. (HH:MM:SS)", style="Field.TLabel"
+        ).pack(anchor="w")
+        self.duration_var = tk.StringVar()
+        duration_picker = ttk.Frame(duration_column, style="Card.TFrame")
+        duration_picker.pack(anchor="w", pady=(2, 0))
+        self.duration_hours_var = tk.StringVar(value="00")
+        self.duration_minutes_var = tk.StringVar(value="00")
+        self.duration_seconds_var = tk.StringVar(value="00")
+        self.duration_entry = []
+        for label, variable, maximum in (
+            ("HH", self.duration_hours_var, 99),
+            ("MM", self.duration_minutes_var, 59),
+            ("SS", self.duration_seconds_var, 59),
+        ):
+            spinbox = ttk.Spinbox(
+                duration_picker,
+                from_=0,
+                to=maximum,
+                increment=1,
+                wrap=True,
+                format="%02.0f",
+                textvariable=variable,
+                width=3,
+                justify="center",
+                state="normal",
+            )
+            spinbox.pack(side="left")
+            ttk.Label(
+                duration_picker, text=label, style="Hint.TLabel"
+            ).pack(side="left", padx=(1, 3))
+            self.duration_entry.append(spinbox)
+            variable.trace_add("write", self._sync_duration_value)
 
-        ttk.Label(save_frame, text="Guardar en:").pack(anchor="w")
-
-        save_row = ttk.Frame(save_frame)
-        save_row.pack(fill="x", pady=(4, 0))
-
+        save_row = ttk.Frame(settings_card, style="Card.TFrame")
+        save_row.pack(fill="x")
         self.save_path_var = tk.StringVar(value="Automático (carpeta recordings/)")
         self.save_path_entry = ttk.Entry(
             save_row, textvariable=self.save_path_var, state="readonly"
         )
         self.save_path_entry.pack(side="left", fill="x", expand=True)
-
         self.save_btn = ttk.Button(
             save_row, text="Guardar como...", command=self.choose_save_location
         )
-        self.save_btn.pack(side="left", padx=(6, 0))
-
-        # --- Duración programada ---
-        duration_frame = ttk.Frame(self.root)
-        duration_frame.pack(fill="x", **pad)
-
-        ttk.Label(
-            duration_frame,
-            text="Detener automáticamente (MM:SS o HH:MM:SS; vacío = manual):",
-        ).pack(anchor="w")
-        self.duration_var = tk.StringVar()
-        self.duration_entry = ttk.Entry(
-            duration_frame, textvariable=self.duration_var, width=14
+        self.save_btn.pack(side="left", padx=(7, 0))
+        preview_card = ttk.LabelFrame(
+            content, text="  VISTA PREVIA  ", style="Card.TLabelframe", padding=5
         )
-        self.duration_entry.pack(anchor="w", pady=(4, 0))
-
-        # --- Cronómetro ---
-        self.timer_var = tk.StringVar(value="00:00.000")
-        tk.Label(
-            self.root,
-            textvariable=self.timer_var,
-            font=("Consolas", 18, "bold"),
-            fg="#1a4d7a",
-        ).pack(pady=(2, 0))
-
-        # --- Vista previa ---
-        preview_frame = ttk.Frame(self.root)
-        preview_frame.pack(padx=8, pady=(3, 1))
+        preview_card.pack(fill="x", pady=(0, 5))
+        monitor_row = ttk.Frame(preview_card, style="Card.TFrame")
+        monitor_row.pack(fill="x")
 
         self.preview_label = tk.Label(
-            preview_frame,
+            monitor_row,
             width=PREVIEW_SIZE[0],
             height=PREVIEW_SIZE[1],
-            bg="black",
+            bg="#111827",
+            highlightthickness=1,
+            highlightbackground="#26364a",
+            bd=0,
         )
-        self.preview_label.pack()
+        self.preview_label.pack(side="left", padx=(0, 8))
 
-        # --- Botones ---
-        btn_frame = ttk.Frame(self.root)
-        btn_frame.pack(fill="x", **pad)
+        capture_controls = ttk.Frame(monitor_row, style="Card.TFrame")
+        capture_controls.pack(side="left", fill="both", expand=True)
+        self.timer_var = tk.StringVar(value="00:00.000")
+        timer_panel = tk.Frame(capture_controls, bg="#17263c", padx=10, pady=6)
+        timer_panel.pack(fill="x", pady=(0, 5))
+        timer_header = tk.Frame(timer_panel, bg="#17263c")
+        timer_header.pack(fill="x")
+        tk.Label(
+            timer_header,
+            text="TIEMPO GRABADO",
+            bg="#17263c",
+            fg="#9fb0c5",
+            font=("Segoe UI", 8, "bold"),
+        ).pack(side="left")
+        self.timer_state_var = tk.StringVar(value="LISTO")
+        self.timer_state_label = tk.Label(
+            timer_header,
+            textvariable=self.timer_state_var,
+            bg="#17263c",
+            fg="#aab8ca",
+            font=("Segoe UI", 8, "bold"),
+        )
+        self.timer_state_label.pack(side="right")
+        ttk.Label(
+            timer_panel, textvariable=self.timer_var, style="Timer.TLabel"
+        ).pack(anchor="center", pady=(4, 1))
 
         self.start_btn = ttk.Button(
-            btn_frame, text="Iniciar grabación", command=self.start_recording
+            capture_controls,
+            text="●  Iniciar grabación",
+            command=self.start_recording,
+            style="Primary.TButton",
         )
-        self.start_btn.pack(side="left", expand=True, fill="x", padx=(0, 4))
+        self.start_btn.pack(fill="x", pady=(0, 3))
 
+        btn_frame = ttk.Frame(capture_controls, style="Card.TFrame")
+        btn_frame.pack(fill="x", pady=(0, 3))
         self.pause_btn = ttk.Button(
             btn_frame, text="Pausar", command=self.toggle_pause, state="disabled"
         )
-        self.pause_btn.pack(side="left", expand=True, fill="x", padx=4)
-
+        self.pause_btn.pack(side="left", expand=True, fill="x", padx=(0, 4))
         self.stop_btn = ttk.Button(
-            btn_frame, text="Detener", command=self.stop_recording, state="disabled"
+            btn_frame,
+            text="Detener",
+            command=self.stop_recording,
+            state="disabled",
+            style="Danger.TButton",
         )
         self.stop_btn.pack(side="left", expand=True, fill="x", padx=4)
-
         self.play_btn = ttk.Button(
-            btn_frame, text="Reproducir", command=self.play_recording, state="disabled"
+            capture_controls,
+            text="Reproducir",
+            command=self.play_recording,
+            state="disabled",
         )
-        self.play_btn.pack(side="left", expand=True, fill="x", padx=(4, 0))
+        self.play_btn.pack(fill="x", pady=(0, 3))
 
-        # --- Progreso de finalización / conversión ---
-        progress_frame = ttk.Frame(self.root)
-        progress_frame.pack(fill="x", padx=8, pady=(1, 1))
-
+        progress_frame = ttk.Frame(capture_controls, style="Card.TFrame")
+        progress_frame.pack(fill="x")
         self.progress_label_var = tk.StringVar(value="Conversión: 0%")
-        ttk.Label(progress_frame, textvariable=self.progress_label_var).pack(anchor="w")
+        ttk.Label(
+            progress_frame,
+            textvariable=self.progress_label_var,
+            style="Hint.TLabel",
+        ).pack(anchor="w")
         self.progress_bar = ttk.Progressbar(
             progress_frame, mode="determinate", maximum=100, value=0
         )
-        self.progress_bar.pack(fill="x")
+        self.progress_bar.pack(fill="x", pady=(2, 0))
 
-        # --- Estado (texto grande para que se note bien) ---
         self.status_var = tk.StringVar(value="Listo.")
-        tk.Label(
-            self.root,
+        ttk.Label(
+            content,
             textvariable=self.status_var,
-            font=("Segoe UI", 10, "bold"),
-            fg="#1a4d7a",
-            wraplength=440,
+            style="Status.TLabel",
+            wraplength=510,
             justify="left",
-        ).pack(anchor="w", padx=10, pady=(4, 6))
+        ).pack(anchor="w", pady=(1, 0))
 
         if not HAS_AUDIO:
             ttk.Label(
-                self.root,
-                text="(No se encontró PyAudioWPatch: instala las dependencias para grabar audio)",
+                content,
+                text="No se encontró PyAudioWPatch: la grabación no incluirá audio.",
                 foreground="#a33",
-                wraplength=480,
-            ).pack(anchor="w", padx=10)
-
+                style="Subtitle.TLabel",
+                wraplength=510,
+            ).pack(anchor="w", pady=(3, 0))
         if not self.volume_available:
             ttk.Label(
-                self.root,
-                text="(No se pudo acceder al volumen del sistema: instala pycaw/comtypes)",
+                content,
+                text="No se pudo acceder al volumen del sistema (pycaw/comtypes).",
                 foreground="#a33",
-                wraplength=480,
-            ).pack(anchor="w", padx=10)
+                style="Subtitle.TLabel",
+                wraplength=510,
+            ).pack(anchor="w", pady=(3, 0))
 
     # ------------------------------------------------------------------
     # Volumen del sistema
@@ -772,7 +910,7 @@ class RecorderApp:
         self.combo.config(state="disabled")
         self.save_btn.config(state="disabled")
         self.format_combo.config(state="disabled")
-        self.duration_entry.config(state="disabled")
+        self._set_duration_controls_state(False)
 
         # Ya se fijó el destino de esta grabación; dejamos el campo listo
         # para que la próxima vuelva a ser "automática" salvo que el
@@ -832,6 +970,49 @@ class RecorderApp:
             if not self._capture_start_event.is_set():
                 self._rec_start_ts = time.monotonic()
                 self._capture_start_event.set()
+        self._set_timer_state("REC", "#fb7185")
+
+    def _set_duration_controls_state(self, enabled):
+        state = "normal" if enabled else "disabled"
+        for spinbox in self.duration_entry:
+            spinbox.config(state=state)
+
+    def _sync_duration_value(self, *_):
+        parts = (
+            self.duration_hours_var.get(),
+            self.duration_minutes_var.get(),
+            self.duration_seconds_var.get(),
+        )
+        if all(part.isdigit() and int(part) == 0 for part in parts):
+            self.duration_var.set("")
+            return
+        self.duration_var.set(":".join(parts))
+
+    def _set_timer_state(self, text, color):
+        self.timer_state_var.set(text)
+        self.timer_state_label.config(fg=color)
+
+    def _send_space_to_recording_window(self):
+        key_pressed = False
+        error = None
+        try:
+            win32gui.SetForegroundWindow(self._recording_hwnd)
+            if win32gui.GetForegroundWindow() != self._recording_hwnd:
+                raise OSError("Windows no permitió activar la ventana seleccionada.")
+            win32api.keybd_event(win32con.VK_SPACE, 0, 0, 0)
+            key_pressed = True
+            time.sleep(0.05)
+        except Exception as exc:
+            error = str(exc)
+        finally:
+            if key_pressed:
+                try:
+                    win32api.keybd_event(
+                        win32con.VK_SPACE, 0, win32con.KEYEVENTF_KEYUP, 0
+                    )
+                except Exception as exc:
+                    error = f"No se pudo liberar la tecla ESPACIO: {exc}"
+        return error
 
     def toggle_pause(self):
         if not self.recording:
@@ -839,14 +1020,23 @@ class RecorderApp:
         self.paused = not self.paused
         if self.paused:
             self._pause_start_ts = time.monotonic()
-            self.pause_btn.config(text="Reanudar")
-            self.status_var.set("Grabación en pausa.")
+            self.pause_btn.config(text="Reproducir")
+            self._set_timer_state("PAUSA", "#fbbf24")
+            status = "Video y grabación en pausa."
         else:
             if self._pause_start_ts is not None:
                 self._paused_total += time.monotonic() - self._pause_start_ts
                 self._pause_start_ts = None
             self.pause_btn.config(text="Pausar")
-            self.status_var.set("Grabando...")
+            self._set_timer_state("REC", "#fb7185")
+            status = "Video y grabación reanudados."
+
+        if self.play_on_start_var.get():
+            space_error = self._send_space_to_recording_window()
+            if space_error:
+                status += f" No se pudo controlar el video automáticamente: {space_error}"
+                status += " La captura sí cambió de estado."
+        self.status_var.set(status)
 
     def _record_video_loop(
         self, left, top, width, height, filename, fmt, start_event, ready_event
@@ -994,6 +1184,7 @@ class RecorderApp:
             return
         self.recording = False
         self.paused = False
+        self._set_timer_state("GUARDANDO", "#60a5fa")
 
         self.start_btn.config(state="disabled")
         self.pause_btn.config(state="disabled", text="Pausar")
@@ -1002,7 +1193,7 @@ class RecorderApp:
         self.combo.config(state="disabled")
         self.save_btn.config(state="disabled")
         self.format_combo.config(state="disabled")
-        self.duration_entry.config(state="disabled")
+        self._set_duration_controls_state(False)
         self.progress_bar.config(value=0)
         self.progress_label_var.set("Finalizando grabación: 0%")
         self.status_var.set("Finalizando grabación en segundo plano...")
@@ -1097,7 +1288,7 @@ class RecorderApp:
         self.combo.config(state="readonly")
         self.save_btn.config(state="normal")
         self.format_combo.config(state="readonly")
-        self.duration_entry.config(state="normal")
+        self._set_duration_controls_state(True)
         self._show_placeholder_preview("Sin grabación en curso")
         self.play_btn.config(
             state="normal"
@@ -1119,6 +1310,12 @@ class RecorderApp:
         ):
             self.progress_label_var.set("Conversión incompleta")
         self.status_var.set(self._finalize_result or "La grabación finalizó.")
+        if self._finalize_result and self._finalize_result.startswith(
+            "Grabación guardada"
+        ):
+            self._set_timer_state("GUARDADO", "#34d399")
+        else:
+            self._set_timer_state("ERROR", "#fb7185")
 
     def _mux_audio(self, video_path, audio_path, out_path, fmt, progress_queue):
         """Añade la pista de audio al video ya codificado (copia el video

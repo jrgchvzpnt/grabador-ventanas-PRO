@@ -42,13 +42,15 @@ deriva acumulada entre los relojes de captura; el video no se recodifica.
 - **Cronómetro en vivo**: muestra el tiempo grabado (MM:SS.mmm, u
   HH:MM:SS.mmm si pasa de una hora) desde que arranca la grabación,
   descontando el tiempo que estuvo en pausa.
-- **Detener automáticamente**: permite indicar una duración en formato
-  `MM:SS` o `HH:MM:SS`; al alcanzarla, detiene y guarda la grabación. Si
-  se deja vacío, la grabación se detiene manualmente.
-- **Play automático opcional**: al iniciar, envía la tecla Espacio a la
-  ventana seleccionada y coordina esa pulsación con el comienzo de la
-  captura. Úsalo con el video pausado y un reproductor que controle Play
-  con Espacio; si ya está reproduciéndose, la tecla podría pausarlo.
+- **Detener automáticamente**: elige horas, minutos y segundos con los
+  controles de tiempo; al alcanzarlo, detiene y guarda la grabación. Si el
+  valor está en `00:00:00`, la grabación se detiene manualmente.
+- **Sincronizar Play/Pausa del video**: al iniciar, envía la tecla Espacio a
+  la ventana seleccionada y coordina esa pulsación con el comienzo de la
+  captura. El botón **Pausar/Reanudar** también pausa o reproduce el video
+  de la ventana junto con la grabación. Úsalo con un reproductor que
+  controle Play/Pausa con Espacio; si el estado del reproductor no coincide
+  con el de la grabación, la tecla puede invertirlo.
 - **Formato de video**: un combo para elegir el formato de salida entre
   los más populares — **MP4, MKV, MOV, AVI y WEBM**. Cada uno usa el
   códec de video/audio más adecuado para ese contenedor (por ejemplo
@@ -115,10 +117,10 @@ python app.py
 2. En la app, pulsa **Actualizar** si la ventana no aparece en la lista, y
    selecciónala en el desplegable.
 3. (Opcional) Marca o desmarca **"Grabar también el audio del sistema"**.
-   La opción **"Play al iniciar (video pausado)"** está habilitada por defecto:
-   deja el video pausado para que la app envíe Espacio cuando inicie la
-   grabación. Desmárcala si el reproductor no usa esa tecla o el video ya
-   está reproduciéndose.
+   La opción **"Sincronizar Play/Pausa del video"** está habilitada por
+   defecto: deja el video pausado para que la app envíe Espacio al iniciar.
+   Durante la grabación, **Pausar/Reanudar** enviará Espacio para pausar o
+   reanudar también el video. Desmárcala si el reproductor no usa esa tecla.
 4. (Opcional) Ajusta la barra **"Volumen de la PC"** para subir o bajar
    el volumen general de Windows sin interrumpir el video ni salir de la
    app.
@@ -131,18 +133,18 @@ python app.py
    guardará igual como `video.mp4`). Si no eliges nada, el video se
    guarda automáticamente en `recordings/` con un nombre basado en la
    fecha y hora.
-7. (Opcional) En **Detener automáticamente**, indica el límite como
-   `MM:SS` (por ejemplo, `05:30`) o `HH:MM:SS` (por ejemplo, `01:05:30`).
-   Déjalo vacío si quieres detener la grabación manualmente. El tiempo en
-   pausa no cuenta para este límite.
+7. (Opcional) Elige las horas, minutos y segundos en **Duración máx.**
+   con las flechas o escribiendo los valores. Déjalo en `00:00:00` para
+   detener la grabación manualmente. El tiempo en pausa no cuenta para este
+   límite.
 8. Pulsa **Iniciar grabación**. La ventana seleccionada se traerá al frente;
-   si está activa la opción de Play automático, se enviará Espacio y la
+   si está activa la sincronización de Play/Pausa, se enviará Espacio y la
    captura comenzará enseguida. La vista previa y el cronómetro mostrarán
    lo que se está grabando y cuánto tiempo lleva. Windows o el reproductor
    pueden impedir la pulsación; en ese caso, inicia el video manualmente.
-9. Usa **Pausar / Reanudar** para pausar temporalmente sin cortar la
-   grabación (el cronómetro y el video se detienen mientras está en
-   pausa).
+9. Usa **Pausar / Reanudar** para pausar temporalmente la captura y, si está
+   activa la sincronización, pausar o reanudar también el video de la
+   ventana. El cronómetro y el video grabado no incluyen el tiempo en pausa.
 10. Pulsa **Detener** para finalizar manualmente, o espera a que se alcance
    la duración programada. Como el video ya se codificó en
    tiempo real mientras grababas, el archivo queda listo casi al instante
@@ -161,16 +163,18 @@ carpeta está excluida del control de versiones (ver `.gitignore`).
 
 | Formato | Video | Audio | Notas |
 |---------|-------|-------|-------|
-| **MP4** (por defecto) | H.264 (`libx264`, preset `veryfast`) | AAC | El más compatible en general; recomendado, mejor rendimiento en tiempo real. |
-| **MKV** | H.264 (`libx264`, preset `veryfast`) | AAC | Contenedor flexible, misma calidad que MP4. |
-| **MOV** | H.264 (`libx264`, preset `veryfast`) | AAC | Compatible con QuickTime/macOS. |
-| **AVI** | Xvid (`libxvid`) | MP3 | Formato más antiguo, mayor compatibilidad con reproductores viejos. |
-| **WEBM** | VP9 (`libvpx-vp9`, `deadline realtime`) | Opus | Pensado para web; archivos más livianos, pero VP9 es el códec más exigente para codificar en tiempo real. |
+| **MP4** (por defecto) | H.264 (`libx264`, CRF 18, preset `veryfast`) | AAC 192 kb/s | Mejor detalle visual y alta compatibilidad; ocupa más que con CRF 23. |
+| **MKV** | H.264 (`libx264`, CRF 18, preset `veryfast`) | AAC 192 kb/s | Contenedor flexible; misma calidad que MP4. |
+| **MOV** | H.264 (`libx264`, CRF 18, preset `veryfast`) | AAC 192 kb/s | Compatible con QuickTime/macOS. |
+| **AVI** | Xvid (`libxvid`, calidad 2) | MP3 192 kb/s | Calidad mejorada; formato antiguo con archivos mayores y menor eficiencia. |
+| **WEBM** | VP9 (`libvpx-vp9`, CRF 28, `deadline realtime`, `cpu-used 6`) | Opus 128 kb/s | Mayor calidad que antes; VP9 usa más procesador durante la captura. |
 
-Todos se codifican en vivo durante la grabación (no al final). En equipos
-más lentos o con ventanas muy grandes, WEBM (VP9) es el que más
-probabilidades tiene de no alcanzar a codificar en tiempo real; si notás
-que la app se pone lenta al grabar, prueba con MP4.
+Todos se codifican en vivo durante la grabación (no al final). En H.264 y
+VP9, un CRF menor aumenta la calidad y el tamaño del archivo; los ajustes
+actuales buscan más detalle que los anteriores, a cambio de más espacio en
+disco. En equipos más lentos o con ventanas muy grandes, WEBM (VP9) puede
+no alcanzar a codificar en tiempo real; si la app se pone lenta, prueba con
+MP4.
 
 ## Generar un ejecutable (.exe)
 
@@ -233,8 +237,8 @@ appvideo/
    hilo que captura esa región de pantalla cuadro a cuadro con `mss`.
 2. Cada cuadro se envía por un pipe (`stdin`) a un proceso `ffmpeg` (vía
    `imageio-ffmpeg`) que lo codifica **en tiempo real** ya con el códec
-   final del formato elegido (por ejemplo H.264 con preset `veryfast`
-   para MP4/MKV/MOV), escribiendo directamente el archivo de video
+   final del formato elegido (por ejemplo H.264 con CRF `18` y preset
+   `veryfast` para MP4/MKV/MOV), escribiendo directamente el archivo de video
    temporal (`.tmp_video_*.<ext>`) — no hay una recodificación posterior
    del video.
 3. Si el audio está activado, un segundo hilo abre un stream WASAPI en
