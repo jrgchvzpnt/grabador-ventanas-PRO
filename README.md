@@ -56,8 +56,10 @@ deriva acumulada entre los relojes de captura; el video no se recodifica.
   códec de video/audio más adecuado para ese contenedor (por ejemplo
   H.264+AAC para MP4/MKV/MOV, Xvid+MP3 para AVI, VP9+Opus para WEBM).
 - **Calidad**: elige **Alta, Media o Baja**. La estimación de tamaño para
-  10 minutos se actualiza al cambiar el formato o la calidad; es una
-  referencia para 1080p a 15 fps, no una garantía.
+  10 minutos se actualiza al cambiar el formato o la calidad. El perfil
+  Alta graba a 1920×1080 y 30 fps (ajusta la imagen sin deformarla; puede
+  agregar bordes negros si la ventana tiene otra proporción). Media y Baja
+  conservan la resolución de la ventana y graban a 15 fps.
 - **Guardar como...**: permite elegir la carpeta y el nombre del archivo
   antes de grabar. La extensión queda siempre forzada al formato elegido
   en el combo, sin importar lo que se escriba en el diálogo.
@@ -165,24 +167,30 @@ carpeta está excluida del control de versiones (ver `.gitignore`).
 
 ### Formatos disponibles
 
-| Formato | Códec de video/audio | Alta | Media (predeterminada) | Baja |
-|---------|-----------------------|------|----------------------|------|
-| **MP4, MKV y MOV** | H.264 (`libx264`) + AAC 192 kb/s | CRF 16 · ~494 MiB | CRF 18 · ~436 MiB | CRF 23 · ~296 MiB |
-| **AVI** | Xvid (`libxvid`) + MP3 192 kb/s | calidad 1 · ~1,631 MiB | calidad 2 · ~1,033 MiB | calidad 4 · ~647 MiB |
-| **WEBM** | VP9 (`libvpx-vp9`) + Opus 128 kb/s | CRF 24 · ~455 MiB | CRF 28 · ~387 MiB | CRF 34 · ~298 MiB |
+| Formato | Códec de video/audio | Alta (1080p/30 fps) | Media (predeterminada, 15 fps) | Baja (15 fps) |
+|---------|-----------------------|--------------------|-------------------------------|----------------|
+| **MP4, MKV y MOV** | H.264 (`libx264`) + AAC 192 kb/s | CRF 16 · ~763 MiB | CRF 18 · ~436 MiB | CRF 23 · ~296 MiB |
+| **AVI** | Xvid (`libxvid`) + MP3 192 kb/s | calidad 1 · ~2,924 MiB | calidad 2 · ~1,033 MiB | calidad 4 · ~647 MiB |
+| **WEBM** | VP9 (`libvpx-vp9`) + Opus 128 kb/s | CRF 24 · ~860 MiB | CRF 28 · ~387 MiB | CRF 34 · ~298 MiB |
 
 Los tamaños son ejemplos aproximados extrapolados a partir de una escena
-sintética en movimiento, codificada a 1920×1080 y 15 fps; incluyen una
-pista de audio. El contenido real puede cambiar mucho el resultado: una
-pantalla estática suele ocupar menos, y escenas con mucho movimiento o
-detalle pueden ocupar más. El tamaño también depende de la resolución de la
-ventana grabada. Los tres contenedores H.264 tienen tamaños similares; el
-resultado exacto puede variar ligeramente.
+sintética en movimiento a 1920×1080; los perfiles Alta se midieron a
+30 fps y Media/Baja a 15 fps. Se extrapolaron clips cortos de prueba e
+incluyen una pista de audio. El contenido real puede cambiar mucho el
+resultado: una pantalla estática suele ocupar menos, y escenas con mucho
+movimiento o detalle pueden ocupar más. Media/Baja usan la resolución
+original de la ventana, por lo que su tamaño real también depende de ella.
+Si la ventana es menor que 1080p, el perfil Alta la amplía, pero esto no
+recupera detalles que no estaban en la fuente.
+Los tres contenedores H.264 tienen tamaños similares; el resultado exacto
+puede variar ligeramente.
 
 Todos se codifican en vivo durante la grabación (no al final). En H.264 y
 VP9, un CRF menor aumenta la calidad y el tamaño del archivo. En equipos
 más lentos o con ventanas muy grandes, WEBM (VP9) puede no alcanzar a
-codificar en tiempo real; si la app se pone lenta, prueba con MP4.
+codificar en tiempo real; los perfiles Alta también exigen más recursos
+porque reescalan a 1080p y codifican 30 fps. Si la app se pone lenta,
+prueba con MP4 o reduce la calidad.
 
 ## Generar un ejecutable (.exe)
 

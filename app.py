@@ -90,35 +90,47 @@ except ImportError:
 OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recordings")
 FPS = 15
 AUDIO_CHUNK = 1024
-PREVIEW_SIZE = (200, 112)  # 16:9
+PREVIEW_SIZE = (220, 124)  # 16:9
 PREVIEW_INTERVAL_MS = 200
 QUALITY_LEVELS = ("Alta", "Media", "Baja")
 QUALITY_PROFILES = {
     "h264": {
         "Alta": {
             "video_args_live": ["-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-pix_fmt", "yuv420p"],
-            "estimate_mib_10min": 494,
+            "fps": 30,
+            "output_size": (1920, 1080),
+            "estimate_mib_10min": 763,
         },
         "Media": {
             "video_args_live": ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p"],
+            "fps": FPS,
+            "output_size": None,
             "estimate_mib_10min": 436,
         },
         "Baja": {
             "video_args_live": ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p"],
+            "fps": FPS,
+            "output_size": None,
             "estimate_mib_10min": 296,
         },
     },
     "xvid": {
         "Alta": {
             "video_args_live": ["-c:v", "libxvid", "-qscale:v", "1", "-tag:v", "XVID"],
-            "estimate_mib_10min": 1631,
+            "fps": 30,
+            "output_size": (1920, 1080),
+            "estimate_mib_10min": 2924,
         },
         "Media": {
             "video_args_live": ["-c:v", "libxvid", "-qscale:v", "2", "-tag:v", "XVID"],
+            "fps": FPS,
+            "output_size": None,
             "estimate_mib_10min": 1033,
         },
         "Baja": {
             "video_args_live": ["-c:v", "libxvid", "-qscale:v", "4", "-tag:v", "XVID"],
+            "fps": FPS,
+            "output_size": None,
             "estimate_mib_10min": 647,
         },
     },
@@ -128,13 +140,17 @@ QUALITY_PROFILES = {
                 "-c:v", "libvpx-vp9", "-crf", "24", "-b:v", "0", "-pix_fmt", "yuv420p",
                 "-deadline", "realtime", "-cpu-used", "6",
             ],
-            "estimate_mib_10min": 455,
+            "fps": 30,
+            "output_size": (1920, 1080),
+            "estimate_mib_10min": 860,
         },
         "Media": {
             "video_args_live": [
                 "-c:v", "libvpx-vp9", "-crf", "28", "-b:v", "0", "-pix_fmt", "yuv420p",
                 "-deadline", "realtime", "-cpu-used", "6",
             ],
+            "fps": FPS,
+            "output_size": None,
             "estimate_mib_10min": 387,
         },
         "Baja": {
@@ -142,6 +158,8 @@ QUALITY_PROFILES = {
                 "-c:v", "libvpx-vp9", "-crf", "34", "-b:v", "0", "-pix_fmt", "yuv420p",
                 "-deadline", "realtime", "-cpu-used", "6",
             ],
+            "fps": FPS,
+            "output_size": None,
             "estimate_mib_10min": 298,
         },
     },
@@ -234,13 +252,13 @@ class RecorderApp:
         self.root = root
         self.root.title("Grabador de ventana")
         screen_height = self.root.winfo_screenheight()
-        window_height = min(700, screen_height - 40)
+        window_height = min(850, screen_height - 40)
         screen_width = self.root.winfo_screenwidth()
         window_width = min(500, screen_width - 40)
         x = max(0, (screen_width - window_width) // 2)
         y = max(0, (screen_height - window_height) // 2)
         self.root.geometry(f"{window_width}x{window_height}+{x}+{y}")
-        self.root.resizable(False, False)
+        self.root.resizable(False, True)
         self._configure_styles()
 
         self.windows = []
@@ -817,8 +835,9 @@ class RecorderApp:
         )
         estimate = profile["estimate_mib_10min"]
         formatted_estimate = f"{estimate:,}".replace(",", ".")
+        resolution = "1080p" if profile["output_size"] else "1080p ref."
         self.quality_estimate_var.set(
-            f"10 min (1080p/15 fps): ~{formatted_estimate} MiB"
+            f"10 min - {resolution}/{profile['fps']} fps: ~{formatted_estimate} MiB"
         )
 
     def _on_quality_change(self, event=None):
@@ -1144,12 +1163,14 @@ class RecorderApp:
         una recompresión posterior)."""
         try:
             ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+            fps = fmt["fps"]
+            output_size = fmt["output_size"] or (width, height)
             cmd = [
                 ffmpeg_exe, "-y",
                 "-f", "rawvideo",
                 "-pixel_format", "bgr24",
-                "-video_size", f"{width}x{height}",
-                "-framerate", str(FPS),
+                "-video_size", f"{output_size[0]}x{output_size[1]}",
+                "-framerate", str(fps),
                 "-i", "pipe:0",
             ] + fmt["video_args_live"] + [filename]
 
@@ -1166,7 +1187,7 @@ class RecorderApp:
         ready_event.set()
 
         monitor = {"left": left, "top": top, "width": width, "height": height}
-        frame_interval = 1.0 / FPS
+        frame_interval = 1.0 / fps
         while self.recording and not start_event.wait(0.1):
             pass
         if not self.recording:
@@ -1180,7 +1201,7 @@ class RecorderApp:
         frames_written = 0
 
         try:
-            with mss.mss() as sct:
+            with mss.MSS() as sct:
                 while self.recording:
                     if self.paused:
                         if pause_start is None:
@@ -1195,13 +1216,37 @@ class RecorderApp:
 
                     img = np.array(sct.grab(monitor))
                     frame = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+                    if (frame.shape[1], frame.shape[0]) != output_size:
+                        scale = min(
+                            output_size[0] / frame.shape[1],
+                            output_size[1] / frame.shape[0],
+                        )
+                        resized_size = (
+                            max(1, round(frame.shape[1] * scale)),
+                            max(1, round(frame.shape[0] * scale)),
+                        )
+                        interpolation = (
+                            cv2.INTER_AREA if scale < 1 else cv2.INTER_LINEAR
+                        )
+                        resized = cv2.resize(
+                            frame, resized_size, interpolation=interpolation
+                        )
+                        frame = np.zeros(
+                            (output_size[1], output_size[0], 3), dtype=np.uint8
+                        )
+                        offset_x = (output_size[0] - resized_size[0]) // 2
+                        offset_y = (output_size[1] - resized_size[1]) // 2
+                        frame[
+                            offset_y:offset_y + resized_size[1],
+                            offset_x:offset_x + resized_size[0],
+                        ] = resized
                     frame_bytes = frame.tobytes()
 
                     with self._frame_lock:
                         self._latest_frame = frame
 
                     elapsed = time.monotonic() - start_time - paused_total
-                    target_frames = max(1, math.ceil(elapsed * FPS))
+                    target_frames = max(1, math.ceil(elapsed * fps))
                     frames_to_write = max(1, target_frames - frames_written)
                     try:
                         for _ in range(frames_to_write):
