@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Grabaciones generadas por la app
+recordings/
+
+# Artefactos de PyInstaller
+build/
+dist/
+*.spec

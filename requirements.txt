@@ -1,0 +1,10 @@
+pygetwindow
+pywin32
+opencv-python
+mss
+numpy
+PyAudioWPatch
+imageio-ffmpeg
+Pillow
+pycaw
+comtypes
