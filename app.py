@@ -90,44 +90,94 @@ except ImportError:
 OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recordings")
 FPS = 15
 AUDIO_CHUNK = 1024
-PREVIEW_SIZE = (220, 124)  # 16:9
+PREVIEW_SIZE = (200, 112)  # 16:9
 PREVIEW_INTERVAL_MS = 200
+QUALITY_LEVELS = ("Alta", "Media", "Baja")
+QUALITY_PROFILES = {
+    "h264": {
+        "Alta": {
+            "video_args_live": ["-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-pix_fmt", "yuv420p"],
+            "estimate_mib_10min": 494,
+        },
+        "Media": {
+            "video_args_live": ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p"],
+            "estimate_mib_10min": 436,
+        },
+        "Baja": {
+            "video_args_live": ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p"],
+            "estimate_mib_10min": 296,
+        },
+    },
+    "xvid": {
+        "Alta": {
+            "video_args_live": ["-c:v", "libxvid", "-qscale:v", "1", "-tag:v", "XVID"],
+            "estimate_mib_10min": 1631,
+        },
+        "Media": {
+            "video_args_live": ["-c:v", "libxvid", "-qscale:v", "2", "-tag:v", "XVID"],
+            "estimate_mib_10min": 1033,
+        },
+        "Baja": {
+            "video_args_live": ["-c:v", "libxvid", "-qscale:v", "4", "-tag:v", "XVID"],
+            "estimate_mib_10min": 647,
+        },
+    },
+    "vp9": {
+        "Alta": {
+            "video_args_live": [
+                "-c:v", "libvpx-vp9", "-crf", "24", "-b:v", "0", "-pix_fmt", "yuv420p",
+                "-deadline", "realtime", "-cpu-used", "6",
+            ],
+            "estimate_mib_10min": 455,
+        },
+        "Media": {
+            "video_args_live": [
+                "-c:v", "libvpx-vp9", "-crf", "28", "-b:v", "0", "-pix_fmt", "yuv420p",
+                "-deadline", "realtime", "-cpu-used", "6",
+            ],
+            "estimate_mib_10min": 387,
+        },
+        "Baja": {
+            "video_args_live": [
+                "-c:v", "libvpx-vp9", "-crf", "34", "-b:v", "0", "-pix_fmt", "yuv420p",
+                "-deadline", "realtime", "-cpu-used", "6",
+            ],
+            "estimate_mib_10min": 298,
+        },
+    },
+}
 
-# Formatos de video disponibles para exportar (video/audio + contenedor).
-# El video se codifica EN VIVO mientras se graba (no al detener), por eso
-# "video_args_live" usa ajustes rápidos (aptos para tiempo real) en vez de
-# los más lentos/compresivos que se usarían en una conversión offline.
+# Formatos de exportación: contenedor, familia de calidad y codificador de audio.
+# El video se codifica en vivo con el perfil seleccionado por el usuario.
 FORMAT_OPTIONS = {
     "MP4 (.mp4)": {
         "ext": ".mp4",
-        "video_args_live": ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p"],
+        "quality_family": "h264",
         "audio_args": ["-c:a", "aac", "-b:a", "192k"],
     },
     "MKV (.mkv)": {
         "ext": ".mkv",
-        "video_args_live": ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p"],
+        "quality_family": "h264",
         "audio_args": ["-c:a", "aac", "-b:a", "192k"],
     },
     "MOV (.mov)": {
         "ext": ".mov",
-        "video_args_live": ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p"],
+        "quality_family": "h264",
         "audio_args": ["-c:a", "aac", "-b:a", "192k"],
     },
     "AVI (.avi)": {
         "ext": ".avi",
-        "video_args_live": ["-c:v", "libxvid", "-qscale:v", "2", "-tag:v", "XVID"],
+        "quality_family": "xvid",
         "audio_args": ["-c:a", "libmp3lame", "-b:a", "192k"],
     },
     "WEBM (.webm)": {
         "ext": ".webm",
-        "video_args_live": [
-            "-c:v", "libvpx-vp9", "-crf", "28", "-b:v", "0", "-pix_fmt", "yuv420p",
-            "-deadline", "realtime", "-cpu-used", "6",
-        ],
+        "quality_family": "vp9",
         "audio_args": ["-c:a", "libopus", "-b:a", "128k"],
     },
 }
 DEFAULT_FORMAT = "MP4 (.mp4)"
+DEFAULT_QUALITY = "Media"
 
 
 def get_loopback_device(p):
@@ -184,7 +234,7 @@ class RecorderApp:
         self.root = root
         self.root.title("Grabador de ventana")
         screen_height = self.root.winfo_screenheight()
-        window_height = min(660, screen_height - 40)
+        window_height = min(700, screen_height - 40)
         screen_width = self.root.winfo_screenwidth()
         window_width = min(500, screen_width - 40)
         x = max(0, (screen_width - window_width) // 2)
@@ -344,12 +394,6 @@ class RecorderApp:
         ttk.Label(content, text="Grabador de ventanas", style="AppTitle.TLabel").pack(
             anchor="w"
         )
-        ttk.Label(
-            content,
-            text="Captura una ventana con audio y vista previa en vivo.",
-            style="Subtitle.TLabel",
-        ).pack(anchor="w", pady=(0, 5))
-
         source_card = ttk.LabelFrame(
             content, text="  FUENTE DE VIDEO  ", style="Card.TLabelframe", padding=7
         )
@@ -437,7 +481,26 @@ class RecorderApp:
         self.format_combo.pack(fill="x", pady=(3, 0))
         self.format_combo.bind("<<ComboboxSelected>>", self._on_format_change)
 
-        duration_column = ttk.Frame(output_row, style="Card.TFrame")
+        quality_column = ttk.Frame(output_row, style="Card.TFrame")
+        quality_column.pack(side="left", fill="x", expand=True)
+        ttk.Label(
+            quality_column, text="Calidad", style="Field.TLabel"
+        ).pack(anchor="w")
+        self.quality_var = tk.StringVar(value=DEFAULT_QUALITY)
+        self.quality_combo = ttk.Combobox(
+            quality_column,
+            textvariable=self.quality_var,
+            state="readonly",
+            values=QUALITY_LEVELS,
+        )
+        self.quality_combo.pack(fill="x", pady=(3, 0))
+        self.quality_combo.bind(
+            "<<ComboboxSelected>>", self._on_quality_change
+        )
+
+        duration_row = ttk.Frame(settings_card, style="Card.TFrame")
+        duration_row.pack(fill="x", pady=(0, 3))
+        duration_column = ttk.Frame(duration_row, style="Card.TFrame")
         duration_column.pack(side="left")
         ttk.Label(
             duration_column, text="Duración máx. (HH:MM:SS)", style="Field.TLabel"
@@ -473,6 +536,14 @@ class RecorderApp:
             self.duration_entry.append(spinbox)
             variable.trace_add("write", self._sync_duration_value)
 
+        self.quality_estimate_var = tk.StringVar()
+        ttk.Label(
+            duration_row,
+            textvariable=self.quality_estimate_var,
+            style="Hint.TLabel",
+        ).pack(side="left", padx=(12, 0), pady=(17, 0))
+        self._update_quality_estimate()
+
         save_row = ttk.Frame(settings_card, style="Card.TFrame")
         save_row.pack(fill="x")
         self.save_path_var = tk.StringVar(value="Automático (carpeta recordings/)")
@@ -485,7 +556,7 @@ class RecorderApp:
         )
         self.save_btn.pack(side="left", padx=(7, 0))
         preview_card = ttk.LabelFrame(
-            content, text="  VISTA PREVIA  ", style="Card.TLabelframe", padding=5
+            content, text="  VISTA PREVIA  ", style="Card.TLabelframe", padding=2
         )
         preview_card.pack(fill="x", pady=(0, 5))
         monitor_row = ttk.Frame(preview_card, style="Card.TFrame")
@@ -727,9 +798,34 @@ class RecorderApp:
     # Formato de video
     # ------------------------------------------------------------------
     def get_selected_format(self):
-        return FORMAT_OPTIONS.get(self.format_var.get(), FORMAT_OPTIONS[DEFAULT_FORMAT])
+        selected_format = FORMAT_OPTIONS.get(
+            self.format_var.get(), FORMAT_OPTIONS[DEFAULT_FORMAT]
+        )
+        quality = self.quality_var.get()
+        profile = QUALITY_PROFILES[selected_format["quality_family"]].get(
+            quality, QUALITY_PROFILES[selected_format["quality_family"]][DEFAULT_QUALITY]
+        )
+        return {**selected_format, **profile}
+
+    def _update_quality_estimate(self):
+        fmt = FORMAT_OPTIONS.get(
+            self.format_var.get(), FORMAT_OPTIONS[DEFAULT_FORMAT]
+        )
+        quality = self.quality_var.get()
+        profile = QUALITY_PROFILES[fmt["quality_family"]].get(
+            quality, QUALITY_PROFILES[fmt["quality_family"]][DEFAULT_QUALITY]
+        )
+        estimate = profile["estimate_mib_10min"]
+        formatted_estimate = f"{estimate:,}".replace(",", ".")
+        self.quality_estimate_var.set(
+            f"10 min (1080p/15 fps): ~{formatted_estimate} MiB"
+        )
+
+    def _on_quality_change(self, event=None):
+        self._update_quality_estimate()
 
     def _on_format_change(self, event=None):
+        self._update_quality_estimate()
         # Si ya se había elegido una ubicación, actualizamos su extensión
         # para que siempre coincida con el formato seleccionado.
         if self.custom_output_path:
@@ -910,6 +1006,7 @@ class RecorderApp:
         self.combo.config(state="disabled")
         self.save_btn.config(state="disabled")
         self.format_combo.config(state="disabled")
+        self.quality_combo.config(state="disabled")
         self._set_duration_controls_state(False)
 
         # Ya se fijó el destino de esta grabación; dejamos el campo listo
@@ -1193,6 +1290,7 @@ class RecorderApp:
         self.combo.config(state="disabled")
         self.save_btn.config(state="disabled")
         self.format_combo.config(state="disabled")
+        self.quality_combo.config(state="disabled")
         self._set_duration_controls_state(False)
         self.progress_bar.config(value=0)
         self.progress_label_var.set("Finalizando grabación: 0%")
@@ -1288,6 +1386,7 @@ class RecorderApp:
         self.combo.config(state="readonly")
         self.save_btn.config(state="normal")
         self.format_combo.config(state="readonly")
+        self.quality_combo.config(state="readonly")
         self._set_duration_controls_state(True)
         self._show_placeholder_preview("Sin grabación en curso")
         self.play_btn.config(

@@ -55,6 +55,9 @@ deriva acumulada entre los relojes de captura; el video no se recodifica.
   los más populares — **MP4, MKV, MOV, AVI y WEBM**. Cada uno usa el
   códec de video/audio más adecuado para ese contenedor (por ejemplo
   H.264+AAC para MP4/MKV/MOV, Xvid+MP3 para AVI, VP9+Opus para WEBM).
+- **Calidad**: elige **Alta, Media o Baja**. La estimación de tamaño para
+  10 minutos se actualiza al cambiar el formato o la calidad; es una
+  referencia para 1080p a 15 fps, no una garantía.
 - **Guardar como...**: permite elegir la carpeta y el nombre del archivo
   antes de grabar. La extensión queda siempre forzada al formato elegido
   en el combo, sin importar lo que se escriba en el diálogo.
@@ -124,8 +127,9 @@ python app.py
 4. (Opcional) Ajusta la barra **"Volumen de la PC"** para subir o bajar
    el volumen general de Windows sin interrumpir el video ni salir de la
    app.
-5. (Opcional) Elige el **"Formato de video"** deseado (MP4, MKV, MOV, AVI
-   o WEBM). Por defecto se usa MP4.
+5. (Opcional) Elige el **Formato de video** (MP4, MKV, MOV, AVI o WEBM) y
+   la **Calidad** (Alta, Media o Baja). Por defecto se usa MP4 con calidad
+   Media. La app muestra un ejemplo aproximado de tamaño para 10 minutos.
 6. (Opcional) Pulsa **Guardar como...** para elegir en qué carpeta y con
    qué nombre se guardará el video. El diálogo siempre fuerza la
    extensión del formato elegido en el paso anterior, aunque escribas
@@ -161,20 +165,24 @@ carpeta está excluida del control de versiones (ver `.gitignore`).
 
 ### Formatos disponibles
 
-| Formato | Video | Audio | Notas |
-|---------|-------|-------|-------|
-| **MP4** (por defecto) | H.264 (`libx264`, CRF 18, preset `veryfast`) | AAC 192 kb/s | Mejor detalle visual y alta compatibilidad; ocupa más que con CRF 23. |
-| **MKV** | H.264 (`libx264`, CRF 18, preset `veryfast`) | AAC 192 kb/s | Contenedor flexible; misma calidad que MP4. |
-| **MOV** | H.264 (`libx264`, CRF 18, preset `veryfast`) | AAC 192 kb/s | Compatible con QuickTime/macOS. |
-| **AVI** | Xvid (`libxvid`, calidad 2) | MP3 192 kb/s | Calidad mejorada; formato antiguo con archivos mayores y menor eficiencia. |
-| **WEBM** | VP9 (`libvpx-vp9`, CRF 28, `deadline realtime`, `cpu-used 6`) | Opus 128 kb/s | Mayor calidad que antes; VP9 usa más procesador durante la captura. |
+| Formato | Códec de video/audio | Alta | Media (predeterminada) | Baja |
+|---------|-----------------------|------|----------------------|------|
+| **MP4, MKV y MOV** | H.264 (`libx264`) + AAC 192 kb/s | CRF 16 · ~494 MiB | CRF 18 · ~436 MiB | CRF 23 · ~296 MiB |
+| **AVI** | Xvid (`libxvid`) + MP3 192 kb/s | calidad 1 · ~1,631 MiB | calidad 2 · ~1,033 MiB | calidad 4 · ~647 MiB |
+| **WEBM** | VP9 (`libvpx-vp9`) + Opus 128 kb/s | CRF 24 · ~455 MiB | CRF 28 · ~387 MiB | CRF 34 · ~298 MiB |
+
+Los tamaños son ejemplos aproximados extrapolados a partir de una escena
+sintética en movimiento, codificada a 1920×1080 y 15 fps; incluyen una
+pista de audio. El contenido real puede cambiar mucho el resultado: una
+pantalla estática suele ocupar menos, y escenas con mucho movimiento o
+detalle pueden ocupar más. El tamaño también depende de la resolución de la
+ventana grabada. Los tres contenedores H.264 tienen tamaños similares; el
+resultado exacto puede variar ligeramente.
 
 Todos se codifican en vivo durante la grabación (no al final). En H.264 y
-VP9, un CRF menor aumenta la calidad y el tamaño del archivo; los ajustes
-actuales buscan más detalle que los anteriores, a cambio de más espacio en
-disco. En equipos más lentos o con ventanas muy grandes, WEBM (VP9) puede
-no alcanzar a codificar en tiempo real; si la app se pone lenta, prueba con
-MP4.
+VP9, un CRF menor aumenta la calidad y el tamaño del archivo. En equipos
+más lentos o con ventanas muy grandes, WEBM (VP9) puede no alcanzar a
+codificar en tiempo real; si la app se pone lenta, prueba con MP4.
 
 ## Generar un ejecutable (.exe)
 
