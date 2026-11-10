@@ -26,6 +26,7 @@ Uso: python app.py
 
 import datetime
 import ctypes
+import json
 import math
 import os
 import queue
@@ -104,6 +105,24 @@ except ImportError:
     HAS_VOLUME_CONTROL = False
 
 OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recordings")
+SETTINGS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.json")
+DEFAULT_BATCH_DIR = os.path.join(OUTPUT_DIR, "drive_batch")
+
+
+def load_settings():
+    try:
+        with open(SETTINGS_PATH, encoding="utf-8") as settings_file:
+            return json.load(settings_file)
+    except (OSError, ValueError):
+        return {}
+
+
+def save_settings(settings):
+    try:
+        with open(SETTINGS_PATH, "w", encoding="utf-8") as settings_file:
+            json.dump(settings, settings_file, ensure_ascii=False, indent=2)
+    except OSError:
+        pass
 
 
 def parse_duration(value):
@@ -705,7 +724,7 @@ class RecorderApp:
     def open_drive_importer(self):
         window = tk.Toplevel(self.root)
         window.title("Descargar videos de Google Drive")
-        window.geometry("620x460")
+        window.geometry("620x500")
         window.minsize(520, 380)
         window.transient(self.root)
 
@@ -760,6 +779,33 @@ class RecorderApp:
             destination_row,
             text="Examinar...",
             command=choose_drive_destination,
+        ).pack(side="left")
+
+        record_row = ttk.Frame(container)
+        record_row.pack(fill="x", pady=(0, 8))
+        ttk.Label(record_row, text="Grabar en").pack(side="left")
+        record_dir_var = tk.StringVar(
+            value=load_settings().get("batch_dir", DEFAULT_BATCH_DIR)
+        )
+        ttk.Entry(
+            record_row, textvariable=record_dir_var, state="readonly"
+        ).pack(side="left", fill="x", expand=True, padx=(8, 6))
+
+        def choose_record_dir():
+            initial_directory = record_dir_var.get()
+            if not os.path.isdir(initial_directory):
+                initial_directory = os.path.expanduser("~")
+            selected = filedialog.askdirectory(
+                parent=window,
+                title="Carpeta donde guardar las grabaciones del lote",
+                initialdir=initial_directory,
+                mustexist=False,
+            )
+            if selected:
+                record_dir_var.set(os.path.normpath(selected))
+
+        ttk.Button(
+            record_row, text="Examinar...", command=choose_record_dir
         ).pack(side="left")
 
         list_frame = ttk.Frame(container)
@@ -908,7 +954,21 @@ class RecorderApp:
             for video in videos:
                 video_list.insert(tk.END, label(video, "○ "))
 
-            if self.start_drive_batch(videos, on_progress=show_progress):
+            batch_dir = os.path.normpath(record_dir_var.get().strip())
+            try:
+                os.makedirs(batch_dir, exist_ok=True)
+            except OSError as exc:
+                messagebox.showerror(
+                    "Carpeta de grabación",
+                    f"No se pudo usar la carpeta {batch_dir}: {exc}",
+                    parent=window,
+                )
+                return
+            save_settings({**load_settings(), "batch_dir": batch_dir})
+
+            if self.start_drive_batch(
+                videos, on_progress=show_progress, output_dir=batch_dir
+            ):
                 status_var.set(
                     "Lote iniciado: se abre y graba cada video en orden. "
                     "Sigue el progreso en la ventana principal; "
@@ -1209,9 +1269,10 @@ class RecorderApp:
         # El video temporal ya queda codificado EN VIVO con el códec final
         # del formato elegido (por eso comparte su extensión); al detener
         # solo falta mezclarle el audio (si lo hay), no volver a codificarlo.
-        self._video_tmp = os.path.join(OUTPUT_DIR, f".tmp_video_{stamp}{ext}")
+        tmp_dir = os.path.dirname(self.output_path)
+        self._video_tmp = os.path.join(tmp_dir, f".tmp_video_{stamp}{ext}")
         self._audio_tmp = (
-            os.path.join(OUTPUT_DIR, f".tmp_audio_{stamp}.wav") if want_audio else None
+            os.path.join(tmp_dir, f".tmp_audio_{stamp}.wav") if want_audio else None
         )
 
         self.paused = False
@@ -1533,7 +1594,7 @@ class RecorderApp:
     # ------------------------------------------------------------------
     # Lote: abrir y grabar en orden los videos de una carpeta de Drive
     # ------------------------------------------------------------------
-    def start_drive_batch(self, videos, on_progress=None):
+    def start_drive_batch(self, videos, on_progress=None, output_dir=None):
         """on_progress(index, estado) recibe 'grabando', 'listo' o 'error'."""
         if self.recording or self._batch:
             messagebox.showwarning("Aviso", "Ya hay una grabación o lote en curso.")
@@ -1543,6 +1604,7 @@ class RecorderApp:
             "index": 0,
             "cancel": False,
             "on_progress": on_progress,
+            "output_dir": output_dir or DEFAULT_BATCH_DIR,
         }
         self._batch_next()
         return True
@@ -1582,7 +1644,7 @@ class RecorderApp:
         if batch["index"] >= len(batch["videos"]):
             self._batch_end(
                 f"Lote terminado: {len(batch['videos'])} video(s) grabados en "
-                f"{os.path.join(OUTPUT_DIR, 'drive_batch')}"
+                f"{batch['output_dir']}"
             )
             return
 
@@ -1841,8 +1903,7 @@ class RecorderApp:
 
         fmt = self.get_selected_format()
         target = os.path.join(
-            OUTPUT_DIR,
-            "drive_batch",
+            batch["output_dir"],
             os.path.splitext(video.relative_path)[0] + fmt["ext"],
         )
         if os.path.exists(target):

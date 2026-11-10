@@ -14,3 +14,4 @@ dist/
 # Credenciales OAuth de Google Drive
 credentials.json
 token.json
+settings.json
