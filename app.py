@@ -48,7 +48,11 @@ from config import (
 )
 from drive import (
     DriveImportError,
+    account_login_available,
+    list_drive_videos_with_account,
     download_drive_video,
+    drive_view_url,
+    get_remote_duration,
     get_video_duration,
     list_drive_videos,
 )
@@ -164,6 +168,7 @@ class RecorderApp:
         self._recording_start_error = None
         self._recording_duration = None
         self._auto_stop_triggered = False
+        self._batch = None  # estado del lote "grabar carpeta de Drive en orden"
 
         self.custom_output_path = None  # ruta elegida por el usuario (o None = automática)
         self._last_save_dir = OUTPUT_DIR
@@ -520,7 +525,7 @@ class RecorderApp:
         self.stop_btn = ttk.Button(
             btn_frame,
             text="Detener",
-            command=self.stop_recording,
+            command=self._on_stop_clicked,
             state="disabled",
             style="Danger.TButton",
         )
@@ -793,6 +798,9 @@ class RecorderApp:
                     else "disabled"
                 )
             )
+            record_button.config(
+                state="normal" if not is_busy and state["videos"] else "disabled"
+            )
             url_entry.config(state=action_state)
 
         def analyze_folder():
@@ -808,12 +816,22 @@ class RecorderApp:
             video_list.delete(0, tk.END)
             state["videos"] = []
             progress.config(value=0, maximum=100)
-            status_var.set("Leyendo la carpeta pública de Drive...")
+            use_account = account_login_available()
+            status_var.set(
+                "Leyendo la carpeta con tu cuenta de Google (puede abrirse el "
+                "navegador para autorizar)..."
+                if use_account
+                else "Leyendo la carpeta pública de Drive..."
+            )
             set_busy(True)
 
             def worker():
                 try:
-                    videos = list_drive_videos(folder_url)
+                    videos = (
+                        list_drive_videos_with_account(folder_url)
+                        if use_account
+                        else list_drive_videos(folder_url)
+                    )
                 except DriveImportError as exc:
                     events.put(("error", str(exc), exc.open_in_browser))
                 else:
@@ -865,10 +883,50 @@ class RecorderApp:
 
             threading.Thread(target=worker, daemon=True).start()
 
+        def record_folder_videos():
+            if not state["videos"]:
+                return
+            videos = state["videos"]
+
+            def label(video, mark):
+                if video.duration_seconds:
+                    hours, rest = divmod(int(video.duration_seconds), 3600)
+                    minutes, seconds = divmod(rest, 60)
+                    length = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+                else:
+                    length = "duración desconocida"
+                return f"{mark}{video.display_name} — {length}"
+
+            def show_progress(index, estado):
+                mark = {"grabando": "● ", "listo": "✔ ", "error": "✘ "}[estado]
+                suffix = " — GRABADO" if estado == "listo" else ""
+                video_list.delete(index)
+                video_list.insert(index, label(videos[index], mark) + suffix)
+                video_list.see(index)
+
+            video_list.delete(0, tk.END)
+            for video in videos:
+                video_list.insert(tk.END, label(video, "○ "))
+
+            if self.start_drive_batch(videos, on_progress=show_progress):
+                status_var.set(
+                    "Lote iniciado: se abre y graba cada video en orden. "
+                    "Sigue el progreso en la ventana principal; "
+                    "'Detener' cancela el lote."
+                )
+                window.iconify()
+
         analyze_button = ttk.Button(
             buttons, text="Analizar carpeta", command=analyze_folder
         )
         analyze_button.pack(side="left")
+        record_button = ttk.Button(
+            buttons,
+            text="Grabar todos en orden",
+            command=record_folder_videos,
+            state="disabled",
+        )
+        record_button.pack(side="left", padx=(8, 0))
         download_button = ttk.Button(
             buttons,
             text="Descargar todos los MP4 en orden",
@@ -1088,12 +1146,15 @@ class RecorderApp:
     # ------------------------------------------------------------------
     # Grabación
     # ------------------------------------------------------------------
-    def start_recording(self):
-        try:
-            recording_duration = parse_duration(self.duration_var.get())
-        except ValueError as exc:
-            messagebox.showwarning("Duración no válida", str(exc))
-            return
+    def start_recording(self, duration_override=None):
+        if duration_override:
+            recording_duration = duration_override
+        else:
+            try:
+                recording_duration = parse_duration(self.duration_var.get())
+            except ValueError as exc:
+                messagebox.showwarning("Duración no válida", str(exc))
+                return
 
         idx = self.combo.current()
         if idx < 0 or idx >= len(self.windows):
@@ -1464,6 +1525,321 @@ class RecorderApp:
     def _mark_audio_recording_started(self):
         self._recording_audio = True
 
+    def _on_stop_clicked(self):
+        # Detener a mano también cancela el lote de Drive en curso.
+        if self._batch:
+            self._batch["cancel"] = True
+        self.stop_recording()
+
+    # ------------------------------------------------------------------
+    # Lote: abrir y grabar en orden los videos de una carpeta de Drive
+    # ------------------------------------------------------------------
+    def start_drive_batch(self, videos, on_progress=None):
+        """on_progress(index, estado) recibe 'grabando', 'listo' o 'error'."""
+        if self.recording or self._batch:
+            messagebox.showwarning("Aviso", "Ya hay una grabación o lote en curso.")
+            return False
+        self._batch = {
+            "videos": videos,
+            "index": 0,
+            "cancel": False,
+            "on_progress": on_progress,
+        }
+        self._batch_next()
+        return True
+
+    def _batch_notify(self, state):
+        batch = self._batch
+        callback = batch.get("on_progress") if batch else None
+        if callback:
+            try:
+                callback(batch["index"], state)
+            except tk.TclError:
+                pass  # la ventana de importación ya se cerró
+
+    @staticmethod
+    def _batch_log(message):
+        try:
+            os.makedirs(OUTPUT_DIR, exist_ok=True)
+            with open(
+                os.path.join(OUTPUT_DIR, "batch_debug.log"), "a", encoding="utf-8"
+            ) as log:
+                log.write(f"{datetime.datetime.now():%H:%M:%S} {message}\n")
+        except OSError:
+            pass
+
+    def _batch_end(self, message):
+        self._batch_log(f"fin: {message}")
+        self._batch = None
+        self.status_var.set(message)
+
+    def _batch_next(self):
+        batch = self._batch
+        if batch is None:
+            return
+        if batch["cancel"]:
+            self._batch_end("Lote cancelado.")
+            return
+        if batch["index"] >= len(batch["videos"]):
+            self._batch_end(
+                f"Lote terminado: {len(batch['videos'])} video(s) grabados en "
+                f"{os.path.join(OUTPUT_DIR, 'drive_batch')}"
+            )
+            return
+
+        video = batch["videos"][batch["index"]]
+        self.status_var.set(
+            f"Lote {batch['index'] + 1}/{len(batch['videos'])}: "
+            f"leyendo la duración de {video.display_name}..."
+        )
+        result = queue.Queue()
+
+        def worker():
+            if video.duration_seconds:
+                result.put(("ok", video.duration_seconds))
+                return
+            try:
+                result.put(("ok", get_remote_duration(video.file_id)))
+            except DriveImportError as exc:
+                result.put(("error", str(exc)))
+
+        threading.Thread(target=worker, daemon=True).start()
+        self._batch_wait_duration(video, result)
+
+    def _batch_wait_duration(self, video, result):
+        batch = self._batch
+        if batch is None:
+            return
+        if batch["cancel"]:
+            self._batch_end("Lote cancelado.")
+            return
+        try:
+            kind, value = result.get_nowait()
+        except queue.Empty:
+            self.root.after(200, self._batch_wait_duration, video, result)
+            return
+
+        if kind == "ok":
+            duration = value
+        else:
+            try:
+                duration = parse_duration(self.duration_var.get())
+            except ValueError:
+                duration = None
+            if duration is None:
+                self._batch_end(f"Lote detenido: {value}")
+                messagebox.showerror(
+                    "Lote de Drive",
+                    f"{value}\n\nIndica una duración máx. en la ventana principal "
+                    "para usarla cuando Drive no entregue la duración.",
+                )
+                return
+
+        webbrowser.open(drive_view_url(video.file_id))
+        batch["deadline"] = time.monotonic() + 30
+        self.status_var.set(
+            f"Lote {batch['index'] + 1}/{len(batch['videos'])}: "
+            f"abriendo {video.display_name}..."
+        )
+        self.root.after(3000, self._batch_find_window, video, duration)
+
+    def _batch_find_window(self, video, duration):
+        batch = self._batch
+        if batch is None:
+            return
+        if batch["cancel"]:
+            self._batch_end("Lote cancelado.")
+            return
+
+        # Los nombres pueden traer espacios dobles o finales ("…verificada .mp4"),
+        # y el título del navegador los normaliza: se compara sin ellos.
+        stem = " ".join(
+            os.path.splitext(os.path.basename(video.relative_path))[0].lower().split()
+        )
+        key = stem[:25]
+        self.refresh_windows()
+        self._batch_log(
+            f"buscando '{key}' entre: "
+            + " | ".join(w.title for w in self.windows)
+        )
+        for index, win in enumerate(self.windows):
+            if key in " ".join(win.title.lower().split()):
+                self._batch_log(f"ventana elegida: {win.title}")
+                self.combo.current(index)
+                self.status_var.set(
+                    f"Lote {batch['index'] + 1}/{len(batch['videos'])}: "
+                    f"esperando a que cargue {video.display_name}..."
+                )
+                # Deja que el reproductor de Drive cargue antes de dar Play.
+                batch["hwnd"] = win._hWnd
+                self.root.after(9000, self._batch_fullscreen, video, duration)
+                return
+
+        if time.monotonic() > batch["deadline"]:
+            self._batch_end(
+                f"Lote detenido: no apareció la ventana del navegador con "
+                f"'{stem}' en el título."
+            )
+            return
+        self.root.after(1000, self._batch_find_window, video, duration)
+
+    @staticmethod
+    def _tap_key_in_window(hwnd, vk):
+        """Pulsa una tecla en la ventana dada. Devuelve el error o None."""
+        key_pressed = False
+        # Con código de escaneo, Chrome reconoce la tecla física (event.code),
+        # que es lo que usa el reproductor de Drive para el atajo "F".
+        scan = win32api.MapVirtualKey(vk, 0)
+        try:
+            win32gui.SetForegroundWindow(hwnd)
+            if win32gui.GetForegroundWindow() != hwnd:
+                raise OSError("Windows no permitió activar la ventana.")
+            win32api.keybd_event(vk, scan, 0, 0)
+            key_pressed = True
+            time.sleep(0.08)
+        except Exception as exc:
+            return str(exc)
+        finally:
+            if key_pressed:
+                win32api.keybd_event(vk, scan, win32con.KEYEVENTF_KEYUP, 0)
+        return None
+
+    @staticmethod
+    def _window_is_fullscreen(hwnd):
+        """True si la ventana cubre por completo el monitor donde está."""
+        try:
+            left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+            monitor = win32api.MonitorFromWindow(
+                hwnd, win32con.MONITOR_DEFAULTTONEAREST
+            )
+            m_left, m_top, m_right, m_bottom = win32api.GetMonitorInfo(monitor)[
+                "Monitor"
+            ]
+        except Exception:
+            return False
+        return (
+            right - left >= m_right - m_left and bottom - top >= m_bottom - m_top
+        )
+
+    @staticmethod
+    def _double_click_window_center(hwnd):
+        """Doble clic en el centro de la ventana. Devuelve el error o None."""
+        try:
+            win32gui.SetForegroundWindow(hwnd)
+            left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+            win32api.SetCursorPos(((left + right) // 2, (top + bottom) // 2))
+            for _ in range(2):
+                win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
+                win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+                time.sleep(0.08)
+        except Exception as exc:
+            return str(exc)
+        return None
+
+    @staticmethod
+    def _window_is_playing(hwnd):
+        """Compara dos capturas de la ventana: si cambian, el video corre."""
+        try:
+            left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+            region = {
+                "left": left + (right - left) // 4,
+                "top": top + (bottom - top) // 4,
+                "width": (right - left) // 2,
+                "height": (bottom - top) // 2,
+            }
+            with mss.MSS() as sct:
+                first = np.array(sct.grab(region), dtype=np.int16)
+                time.sleep(0.5)
+                second = np.array(sct.grab(region), dtype=np.int16)
+        except Exception:
+            return False
+        return float(np.abs(first - second).mean()) > 0.8
+
+    def _batch_fullscreen(self, video, duration):
+        batch = self._batch
+        if batch is None:
+            return
+        if batch["cancel"]:
+            self._batch_end("Lote cancelado.")
+            return
+
+        # Un doble clic sobre el reproductor de Drive lo pone en pantalla
+        # completa (la tecla "F" no responde en una página recién cargada).
+        error = self._double_click_window_center(batch["hwnd"])
+        if error:
+            self._batch_log(f"error en el doble clic: {error}")
+        self.root.after(1500, self._batch_check_fullscreen, video, duration, 1)
+
+    def _batch_check_fullscreen(self, video, duration, attempt):
+        batch = self._batch
+        if batch is None:
+            return
+        hwnd = batch["hwnd"]
+        if self._window_is_fullscreen(hwnd):
+            self._batch_log("pantalla completa OK")
+        elif attempt < 3:
+            self._batch_log(
+                f"no entró en pantalla completa (rect {win32gui.GetWindowRect(hwnd)}); "
+                f"reintento {attempt}"
+            )
+            self._double_click_window_center(hwnd)
+            self.root.after(
+                1500, self._batch_check_fullscreen, video, duration, attempt + 1
+            )
+            return
+        else:
+            self._batch_log(
+                f"no se logró pantalla completa (rect {win32gui.GetWindowRect(hwnd)}); "
+                "se graba la ventana"
+            )
+            self.status_var.set(
+                "No se pudo poner pantalla completa; se graba la ventana."
+            )
+        self.root.after(300, self._batch_rewind, video, duration)
+
+    def _batch_rewind(self, video, duration):
+        """Deja el video pausado en el segundo 0 antes de grabar."""
+        batch = self._batch
+        if batch is None:
+            return
+        hwnd = batch["hwnd"]
+        if self._window_is_playing(hwnd):
+            self._batch_log("el video corría: se pausa")
+            self._tap_key_in_window(hwnd, win32con.VK_SPACE)
+            time.sleep(0.2)
+        else:
+            self._batch_log("el video ya estaba pausado")
+        for _ in range(4):  # cada flecha retrocede; al llegar a 0 no pasa de ahí
+            self._tap_key_in_window(hwnd, win32con.VK_LEFT)
+            time.sleep(0.15)
+        self.root.after(800, self._batch_record, video, duration)
+
+    def _batch_record(self, video, duration):
+        batch = self._batch
+        if batch is None:
+            return
+        if batch["cancel"]:
+            self._batch_end("Lote cancelado.")
+            return
+
+        fmt = self.get_selected_format()
+        target = os.path.join(
+            OUTPUT_DIR,
+            "drive_batch",
+            os.path.splitext(video.relative_path)[0] + fmt["ext"],
+        )
+        if os.path.exists(target):
+            stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            target = os.path.splitext(target)[0] + f"_{stamp}" + fmt["ext"]
+        self.custom_output_path = target
+
+        # Margen por si el reproductor se detiene a cargar (buffering).
+        self.start_recording(duration_override=duration + 5)
+        if not self.recording:
+            self._batch_end("Lote detenido: no se pudo iniciar la grabación.")
+            return
+        self._batch_notify("grabando")
+
     def stop_recording(self):
         if not self.recording:
             return
@@ -1597,12 +1973,27 @@ class RecorderApp:
         ):
             self.progress_label_var.set("Conversión incompleta")
         self.status_var.set(self._finalize_result or "La grabación finalizó.")
-        if self._finalize_result and self._finalize_result.startswith(
-            "Grabación guardada"
-        ):
+        saved = bool(
+            self._finalize_result
+            and self._finalize_result.startswith("Grabación guardada")
+        )
+        if saved:
             self._set_timer_state("GUARDADO", "#34d399")
         else:
             self._set_timer_state("ERROR", "#fb7185")
+
+        if self._batch:
+            # Sale de pantalla completa para que el siguiente video cargue normal.
+            if self._batch.get("hwnd"):
+                self._tap_key_in_window(self._batch["hwnd"], win32con.VK_ESCAPE)
+            self._batch_notify("listo" if saved else "error")
+            if saved and not self._batch["cancel"]:
+                self._batch["index"] += 1
+                self.root.after(2000, self._batch_next)
+            else:
+                self._batch_end(
+                    f"Lote detenido: {self._finalize_result or 'grabación no guardada'}"
+                )
 
     def _cleanup_temp_files(self):
         for path in (self._video_tmp, self._audio_tmp):

@@ -10,3 +10,7 @@ recordings/
 build/
 dist/
 *.spec
+
+# Credenciales OAuth de Google Drive
+credentials.json
+token.json

@@ -10,3 +10,5 @@ pycaw
 comtypes
 gdown
 requests
+google-api-python-client
+google-auth-oauthlib
