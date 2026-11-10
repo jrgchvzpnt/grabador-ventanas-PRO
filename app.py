@@ -1309,19 +1309,20 @@ class RecorderApp:
             return
 
         key_pressed = False
+        # En el lote de Drive se da Play con la tecla multimedia: Espacio hace
+        # que el reproductor muestre sus controles durante los primeros segundos.
+        play_vk = win32con.VK_MEDIA_PLAY_PAUSE if self._batch else win32con.VK_SPACE
         try:
             if self.play_on_start_var.get():
                 win32gui.SetForegroundWindow(self._recording_hwnd)
                 if win32gui.GetForegroundWindow() != self._recording_hwnd:
                     raise OSError("Windows no permitió activar la ventana seleccionada.")
-                win32api.keybd_event(win32con.VK_SPACE, 0, 0, 0)
+                win32api.keybd_event(play_vk, 0, 0, 0)
                 key_pressed = True
                 self._rec_start_ts = time.monotonic()
                 self._capture_start_event.set()
                 time.sleep(0.05)
-                win32api.keybd_event(
-                    win32con.VK_SPACE, 0, win32con.KEYEVENTF_KEYUP, 0
-                )
+                win32api.keybd_event(play_vk, 0, win32con.KEYEVENTF_KEYUP, 0)
                 key_pressed = False
         except Exception as exc:
             self.status_var.set(
@@ -1331,11 +1332,9 @@ class RecorderApp:
         finally:
             if key_pressed:
                 try:
-                    win32api.keybd_event(
-                        win32con.VK_SPACE, 0, win32con.KEYEVENTF_KEYUP, 0
-                    )
+                    win32api.keybd_event(play_vk, 0, win32con.KEYEVENTF_KEYUP, 0)
                 except Exception as exc:
-                    self.status_var.set(f"No se pudo liberar la tecla ESPACIO: {exc}")
+                    self.status_var.set(f"No se pudo liberar la tecla: {exc}")
             if not self._capture_start_event.is_set():
                 self._rec_start_ts = time.monotonic()
                 self._capture_start_event.set()
@@ -1812,7 +1811,25 @@ class RecorderApp:
         for _ in range(4):  # cada flecha retrocede; al llegar a 0 no pasa de ahí
             self._tap_key_in_window(hwnd, win32con.VK_LEFT)
             time.sleep(0.15)
-        self.root.after(800, self._batch_record, video, duration)
+        self._move_cursor_away(hwnd)
+        # Con el cursor fuera y sin teclas, Drive oculta los controles.
+        self.root.after(4000, self._batch_record, video, duration)
+
+    @staticmethod
+    def _move_cursor_away(hwnd):
+        """Lleva el cursor fuera del video (a otro monitor si existe)."""
+        try:
+            own = win32api.MonitorFromWindow(hwnd, win32con.MONITOR_DEFAULTTONEAREST)
+            own_rect = win32api.GetMonitorInfo(own)["Monitor"]
+            for _handle, _dc, rect in win32api.EnumDisplayMonitors():
+                if rect != own_rect:
+                    win32api.SetCursorPos(
+                        ((rect[0] + rect[2]) // 2, (rect[1] + rect[3]) // 2)
+                    )
+                    return
+            win32api.SetCursorPos((own_rect[2] - 1, own_rect[3] - 1))
+        except Exception:
+            pass
 
     def _batch_record(self, video, duration):
         batch = self._batch
