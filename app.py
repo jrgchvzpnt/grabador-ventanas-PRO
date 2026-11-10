@@ -1858,18 +1858,49 @@ class RecorderApp:
             )
         self.root.after(300, self._batch_rewind, video, duration)
 
+    @staticmethod
+    def _player_is_paused(hwnd):
+        """True/False según el botón de Play/Pausa del reproductor de Drive.
+
+        Pausado es un botón blanco; reproduciendo, uno oscuro. Se mira ese
+        botón porque comparar fotogramas falla con imágenes fijas (p. ej. la
+        tarjeta inicial de una sesión de Zoom). Devuelve None si no se pudo.
+        """
+        try:
+            left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+            width, height = right - left, bottom - top
+            # Mover el cursor dentro de la ventana hace visibles los controles.
+            win32api.SetCursorPos((left + width // 2, top + height // 2))
+            time.sleep(0.2)
+            win32api.SetCursorPos((left + width // 2 + 6, top + height // 2 + 6))
+            time.sleep(0.8)
+            region = {
+                "left": left + int(width * 0.008),
+                "top": top + int(height * 0.935),
+                "width": int(width * 0.065),
+                "height": int(height * 0.05),
+            }
+            with mss.MSS() as sct:
+                pixels = np.array(sct.grab(region))[:, :, :3]
+            return float(pixels.mean()) > 130
+        except Exception:
+            return None
+
     def _batch_rewind(self, video, duration):
         """Deja el video pausado en el segundo 0 antes de grabar."""
         batch = self._batch
         if batch is None:
             return
         hwnd = batch["hwnd"]
-        if self._window_is_playing(hwnd):
-            self._batch_log("el video corría: se pausa")
+        paused = self._player_is_paused(hwnd)
+        self._batch_log(f"estado del reproductor: pausado={paused}")
+        if paused is None:
+            paused = not self._window_is_playing(hwnd)
+        if not paused:
             self._tap_key_in_window(hwnd, win32con.VK_SPACE)
-            time.sleep(0.2)
-        else:
-            self._batch_log("el video ya estaba pausado")
+            time.sleep(0.3)
+            paused = self._player_is_paused(hwnd)
+            self._batch_log(f"tras pausar: pausado={paused}")
         for _ in range(4):  # cada flecha retrocede; al llegar a 0 no pasa de ahí
             self._tap_key_in_window(hwnd, win32con.VK_LEFT)
             time.sleep(0.15)
