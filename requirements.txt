@@ -8,3 +8,5 @@ imageio-ffmpeg
 Pillow
 pycaw
 comtypes
+gdown
+requests

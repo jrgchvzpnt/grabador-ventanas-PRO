@@ -15,6 +15,18 @@ en segundo plano y muestra el porcentaje de avance sin bloquear la interfaz.
 En esa mezcla se comparan las duraciones de las pistas y se compensa la
 deriva acumulada entre los relojes de captura; el video no se recodifica.
 
+## Estructura del proyecto
+
+- `app.py`: interfaz y coordinación de la grabación; se sigue iniciando con
+  `python app.py`.
+- `config.py`: opciones de captura, formatos, perfiles de calidad y sus
+  estimaciones de tamaño.
+- `audio.py`: captura de audio loopback WASAPI y escritura de la pista WAV.
+- `drive.py`: listado y descarga secuencial de MP4 desde carpetas públicas
+  de Google Drive y lectura de su duración.
+- `media.py`: combinación de audio y video y compensación de desfase entre
+  sus duraciones.
+
 ## Características
 
 - **Selección de ventana**: lista todas las ventanas abiertas del sistema y
@@ -23,6 +35,14 @@ deriva acumulada entre los relojes de captura; el video no se recodifica.
   ejemplo, un video de Google Drive) que se abre con tu navegador y tu
   sesión normal. La app **no maneja usuarios ni contraseñas**: solo llama
   a `webbrowser.open()`, así que inicias sesión tú mismo si hace falta.
+- **Importar videos desde Google Drive**: permite analizar una carpeta
+  compartida públicamente, listar sus MP4 y descargarlos secuencialmente
+  conservando el nombre y la estructura de subcarpetas. La duración se
+  lee después de descargar cada archivo. El campo **URL Drive** está en la
+  ventana principal. Si Drive responde que requiere acceso, la app abre el
+  enlace en el navegador para que el usuario inicie sesión o revise permisos.
+  La app no lee cookies ni usa esa sesión: para descargar, la carpeta debe
+  estar compartida como **Cualquier persona con el enlace**.
 - **Grabación de video**: captura la región de pantalla donde está la
   ventana seleccionada usando [`mss`](https://pypi.org/project/mss/) y
   [`OpenCV`](https://pypi.org/project/opencv-python/). La aplicación activa
@@ -106,6 +126,8 @@ Dependencias incluidas en `requirements.txt`:
 | `Pillow`          | Generar la imagen de la vista previa en la interfaz    |
 | `pycaw`           | Leer y ajustar el volumen general de Windows           |
 | `comtypes`        | Dependencia de `pycaw` para llamar a las APIs COM de Windows |
+| `gdown`           | Enumerar y descargar archivos de carpetas públicas de Google Drive |
+| `requests`        | Conexiones HTTPS para la descarga pública desde Drive |
 
 ## Uso
 
@@ -119,6 +141,15 @@ python app.py
    **Abrir**: se abrirá con tu navegador y tu sesión ya iniciada. Si Drive
    te pide iniciar sesión, hazlo tú mismo en esa pestaña (la app nunca ve
    ni guarda tu usuario o contraseña).
+   Para importar una carpeta pública, pega su enlace en **URL Drive** y
+   pulsa **Importar MP4**. Analiza la carpeta y luego pulsa
+   **Descargar todos los MP4 en orden**. El proceso conserva los nombres y
+   subdirectorios que Drive reporte, no sobrescribe archivos existentes y
+   muestra la duración estimada a partir de los metadatos de cada MP4.
+   Si Drive indica que requiere acceso, la app abrirá el enlace en el navegador
+   para que inicies sesión o revises permisos. El inicio de sesión no se comparte
+   con la aplicación: habilita **Cualquier persona con el enlace** y vuelve a
+   analizar para descargar.
 2. En la app, pulsa **Actualizar** si la ventana no aparece en la lista, y
    selecciónala en el desplegable.
 3. (Opcional) Marca o desmarca **"Grabar también el audio del sistema"**.
@@ -240,6 +271,10 @@ archivo `.spec` generados por PyInstaller no se versionan (ver
 ```
 appvideo/
 ├── app.py              # Aplicación principal (interfaz + lógica de grabación)
+├── audio.py            # Captura de audio loopback
+├── config.py           # Formatos, perfiles y ajustes de captura
+├── drive.py            # Importación de videos desde Google Drive público
+├── media.py            # Mezcla de audio y video
 ├── requirements.txt    # Dependencias de Python
 ├── .gitignore
 ├── README.md

@@ -32,8 +32,27 @@ import queue
 import subprocess
 import threading
 import time
-import wave
 import webbrowser
+
+from audio import HAS_AUDIO, record_system_audio
+from config import (
+    AUDIO_CHUNK,
+    DEFAULT_FORMAT,
+    DEFAULT_QUALITY,
+    FORMAT_OPTIONS,
+    FPS,
+    PREVIEW_INTERVAL_MS,
+    PREVIEW_SIZE,
+    QUALITY_LEVELS,
+    QUALITY_PROFILES,
+)
+from drive import (
+    DriveImportError,
+    download_drive_video,
+    get_video_duration,
+    list_drive_videos,
+)
+from media import mux_audio
 
 
 def _enable_dpi_awareness():
@@ -74,13 +93,6 @@ import win32gui
 from PIL import Image, ImageDraw, ImageTk
 
 try:
-    import pyaudiowpatch as pyaudio
-
-    HAS_AUDIO = True
-except ImportError:
-    HAS_AUDIO = False
-
-try:
     from pycaw.pycaw import AudioUtilities
 
     HAS_VOLUME_CONTROL = True
@@ -88,136 +100,6 @@ except ImportError:
     HAS_VOLUME_CONTROL = False
 
 OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recordings")
-FPS = 15
-AUDIO_CHUNK = 1024
-PREVIEW_SIZE = (220, 124)  # 16:9
-PREVIEW_INTERVAL_MS = 200
-QUALITY_LEVELS = ("Alta", "Media", "Baja")
-QUALITY_PROFILES = {
-    "h264": {
-        "Alta": {
-            "video_args_live": ["-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-pix_fmt", "yuv420p"],
-            "fps": 30,
-            "output_size": (1920, 1080),
-            "estimate_mib_10min": 763,
-        },
-        "Media": {
-            "video_args_live": ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p"],
-            "fps": FPS,
-            "output_size": None,
-            "estimate_mib_10min": 436,
-        },
-        "Baja": {
-            "video_args_live": ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p"],
-            "fps": FPS,
-            "output_size": None,
-            "estimate_mib_10min": 296,
-        },
-    },
-    "xvid": {
-        "Alta": {
-            "video_args_live": ["-c:v", "libxvid", "-qscale:v", "1", "-tag:v", "XVID"],
-            "fps": 30,
-            "output_size": (1920, 1080),
-            "estimate_mib_10min": 2924,
-        },
-        "Media": {
-            "video_args_live": ["-c:v", "libxvid", "-qscale:v", "2", "-tag:v", "XVID"],
-            "fps": FPS,
-            "output_size": None,
-            "estimate_mib_10min": 1033,
-        },
-        "Baja": {
-            "video_args_live": ["-c:v", "libxvid", "-qscale:v", "4", "-tag:v", "XVID"],
-            "fps": FPS,
-            "output_size": None,
-            "estimate_mib_10min": 647,
-        },
-    },
-    "vp9": {
-        "Alta": {
-            "video_args_live": [
-                "-c:v", "libvpx-vp9", "-crf", "24", "-b:v", "0", "-pix_fmt", "yuv420p",
-                "-deadline", "realtime", "-cpu-used", "6",
-            ],
-            "fps": 30,
-            "output_size": (1920, 1080),
-            "estimate_mib_10min": 860,
-        },
-        "Media": {
-            "video_args_live": [
-                "-c:v", "libvpx-vp9", "-crf", "28", "-b:v", "0", "-pix_fmt", "yuv420p",
-                "-deadline", "realtime", "-cpu-used", "6",
-            ],
-            "fps": FPS,
-            "output_size": None,
-            "estimate_mib_10min": 387,
-        },
-        "Baja": {
-            "video_args_live": [
-                "-c:v", "libvpx-vp9", "-crf", "34", "-b:v", "0", "-pix_fmt", "yuv420p",
-                "-deadline", "realtime", "-cpu-used", "6",
-            ],
-            "fps": FPS,
-            "output_size": None,
-            "estimate_mib_10min": 298,
-        },
-    },
-}
-
-# Formatos de exportación: contenedor, familia de calidad y codificador de audio.
-# El video se codifica en vivo con el perfil seleccionado por el usuario.
-FORMAT_OPTIONS = {
-    "MP4 (.mp4)": {
-        "ext": ".mp4",
-        "quality_family": "h264",
-        "audio_args": ["-c:a", "aac", "-b:a", "192k"],
-    },
-    "MKV (.mkv)": {
-        "ext": ".mkv",
-        "quality_family": "h264",
-        "audio_args": ["-c:a", "aac", "-b:a", "192k"],
-    },
-    "MOV (.mov)": {
-        "ext": ".mov",
-        "quality_family": "h264",
-        "audio_args": ["-c:a", "aac", "-b:a", "192k"],
-    },
-    "AVI (.avi)": {
-        "ext": ".avi",
-        "quality_family": "xvid",
-        "audio_args": ["-c:a", "libmp3lame", "-b:a", "192k"],
-    },
-    "WEBM (.webm)": {
-        "ext": ".webm",
-        "quality_family": "vp9",
-        "audio_args": ["-c:a", "libopus", "-b:a", "128k"],
-    },
-}
-DEFAULT_FORMAT = "MP4 (.mp4)"
-DEFAULT_QUALITY = "Media"
-
-
-def get_loopback_device(p):
-    """Devuelve el dispositivo de loopback WASAPI del altavoz predeterminado."""
-    try:
-        wasapi_info = p.get_host_api_info_by_type(pyaudio.paWASAPI)
-    except OSError:
-        return None
-
-    try:
-        default_speakers = p.get_device_info_by_index(wasapi_info["defaultOutputDevice"])
-    except OSError:
-        return None
-
-    if default_speakers.get("isLoopbackDevice", False):
-        return default_speakers
-
-    for loopback in p.get_loopback_device_info_generator():
-        if default_speakers["name"] in loopback["name"]:
-            return loopback
-
-    return None
 
 
 def parse_duration(value):
@@ -419,15 +301,18 @@ class RecorderApp:
 
         open_row = ttk.Frame(source_card, style="Card.TFrame")
         open_row.pack(fill="x", pady=(0, 4))
-        ttk.Label(open_row, text="URL", style="Field.TLabel", width=8).pack(
-            side="left"
-        )
+        ttk.Label(
+            open_row, text="URL Drive", style="Field.TLabel", width=9
+        ).pack(side="left")
         self.url_var = tk.StringVar()
         self.url_entry = ttk.Entry(open_row, textvariable=self.url_var)
         self.url_entry.pack(side="left", fill="x", expand=True)
         ttk.Button(open_row, text="Abrir", command=self.open_video_url).pack(
             side="left", padx=(7, 0)
         )
+        ttk.Button(
+            open_row, text="Importar MP4", command=self.open_drive_importer
+        ).pack(side="left", padx=(5, 0))
         window_row = ttk.Frame(source_card, style="Card.TFrame")
         window_row.pack(fill="x")
         ttk.Label(window_row, text="Ventana", style="Field.TLabel", width=8).pack(
@@ -812,6 +697,309 @@ class RecorderApp:
         # la lista, así aparece disponible para seleccionarla.
         self.root.after(2500, self.refresh_windows)
 
+    def open_drive_importer(self):
+        window = tk.Toplevel(self.root)
+        window.title("Descargar videos de Google Drive")
+        window.geometry("620x460")
+        window.minsize(520, 380)
+        window.transient(self.root)
+
+        container = ttk.Frame(window, padding=12)
+        container.pack(fill="both", expand=True)
+        ttk.Label(
+            container,
+            text=(
+                "Pega el URL de la carpeta de Drive en la ventana principal. "
+                "Si Drive pide iniciar sesión, se abrirá el navegador para que "
+                "lo hagas. La descarga requiere que la carpeta esté compartida "
+                "como “Cualquier persona con el enlace”; la aplicación no usa "
+                "la sesión ni las cookies del navegador. Los MP4 se descargan "
+                "en el orden de Drive, conservando nombres y subcarpetas."
+            ),
+            wraplength=580,
+            justify="left",
+        ).pack(anchor="w", pady=(0, 8))
+
+        ttk.Label(container, text="URL de carpeta de Google Drive").pack(anchor="w")
+        url_var = self.url_var
+        url_entry = ttk.Entry(container, textvariable=url_var)
+        url_entry.pack(fill="x", pady=(3, 8))
+
+        destination_row = ttk.Frame(container)
+        destination_row.pack(fill="x", pady=(0, 8))
+        ttk.Label(destination_row, text="Guardar en").pack(side="left")
+        destination_var = tk.StringVar(
+            value=os.path.join(OUTPUT_DIR, "drive_downloads")
+        )
+        destination_entry = ttk.Entry(
+            destination_row, textvariable=destination_var, state="readonly"
+        )
+        destination_entry.pack(side="left", fill="x", expand=True, padx=(8, 6))
+
+        def choose_drive_destination():
+            initial_directory = destination_var.get()
+            if not os.path.isdir(initial_directory):
+                initial_directory = os.path.dirname(initial_directory)
+            if not os.path.isdir(initial_directory):
+                initial_directory = os.path.expanduser("~")
+            selected = filedialog.askdirectory(
+                parent=window,
+                title="Seleccionar carpeta para los videos",
+                initialdir=initial_directory,
+                mustexist=False,
+            )
+            if selected:
+                destination_var.set(selected)
+
+        ttk.Button(
+            destination_row,
+            text="Examinar...",
+            command=choose_drive_destination,
+        ).pack(side="left")
+
+        list_frame = ttk.Frame(container)
+        list_frame.pack(fill="both", expand=True, pady=(0, 8))
+        scrollbar = ttk.Scrollbar(list_frame, orient="vertical")
+        video_list = tk.Listbox(
+            list_frame,
+            height=12,
+            activestyle="none",
+            yscrollcommand=scrollbar.set,
+        )
+        scrollbar.config(command=video_list.yview)
+        video_list.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        progress = ttk.Progressbar(container, mode="determinate", maximum=100)
+        progress.pack(fill="x", pady=(0, 4))
+        status_var = tk.StringVar(value="Pega o confirma el enlace de Drive.")
+        ttk.Label(
+            container, textvariable=status_var, wraplength=580, justify="left"
+        ).pack(anchor="w", pady=(0, 8))
+
+        buttons = ttk.Frame(container)
+        buttons.pack(fill="x")
+        events = queue.Queue()
+        state = {"videos": [], "busy": False}
+
+        def set_busy(is_busy):
+            state["busy"] = is_busy
+            action_state = "disabled" if is_busy else "normal"
+            analyze_button.config(state=action_state)
+            download_button.config(
+                state=(
+                    "normal"
+                    if not is_busy and state["videos"]
+                    else "disabled"
+                )
+            )
+            url_entry.config(state=action_state)
+
+        def analyze_folder():
+            folder_url = url_var.get().strip()
+            if not folder_url:
+                messagebox.showwarning(
+                    "Falta el enlace",
+                    "Pega el enlace de la carpeta de Google Drive.",
+                    parent=window,
+                )
+                return
+
+            video_list.delete(0, tk.END)
+            state["videos"] = []
+            progress.config(value=0, maximum=100)
+            status_var.set("Leyendo la carpeta pública de Drive...")
+            set_busy(True)
+
+            def worker():
+                try:
+                    videos = list_drive_videos(folder_url)
+                except DriveImportError as exc:
+                    events.put(("error", str(exc), exc.open_in_browser))
+                else:
+                    events.put(("listed", videos))
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        def download_folder_videos():
+            destination = destination_var.get().strip()
+            videos = state["videos"]
+            if not videos:
+                return
+
+            destination_path = os.path.abspath(destination)
+            conflicts = [
+                video.display_name
+                for video in videos
+                if os.path.exists(
+                    os.path.join(destination_path, video.relative_path)
+                )
+            ]
+            if conflicts:
+                messagebox.showwarning(
+                    "Archivos existentes",
+                    "No se sobrescribieron archivos. Elige otra carpeta o mueve "
+                    "los que ya existen:\n\n" + "\n".join(conflicts[:5]),
+                    parent=window,
+                )
+                return
+
+            video_list.delete(0, tk.END)
+            for video in videos:
+                video_list.insert(tk.END, f"{video.display_name} — pendiente")
+            progress.config(value=0, maximum=len(videos))
+            status_var.set(f"Descargando 0 de {len(videos)}...")
+            set_busy(True)
+
+            def worker():
+                for index, video in enumerate(videos):
+                    events.put(("current", index, video.display_name))
+                    try:
+                        local_path = download_drive_video(video, destination_path)
+                        duration = get_video_duration(local_path)
+                    except DriveImportError as exc:
+                        events.put(("download_error", index, str(exc)))
+                        return
+                    events.put(("downloaded", index, duration))
+                events.put(("download_complete", len(videos)))
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        analyze_button = ttk.Button(
+            buttons, text="Analizar carpeta", command=analyze_folder
+        )
+        analyze_button.pack(side="left")
+        download_button = ttk.Button(
+            buttons,
+            text="Descargar todos los MP4 en orden",
+            command=download_folder_videos,
+            state="disabled",
+        )
+        download_button.pack(side="right")
+
+        def process_events():
+            if not window.winfo_exists():
+                return
+            while True:
+                try:
+                    event = events.get_nowait()
+                except queue.Empty:
+                    break
+
+                event_type = event[0]
+                if event_type == "listed":
+                    state["videos"] = event[1]
+                    for video in state["videos"]:
+                        video_list.insert(tk.END, f"{video.display_name} — duración pendiente")
+                    status_var.set(
+                        f"{len(state['videos'])} archivo(s) MP4 encontrados. "
+                        "La duración se verificará después de cada descarga."
+                    )
+                    set_busy(False)
+                elif event_type == "error":
+                    status_var.set(event[1])
+                    set_busy(False)
+                    if event[2]:
+                        browser_error = None
+                        try:
+                            browser_opened = webbrowser.open(url_var.get().strip())
+                        except (webbrowser.Error, OSError) as exc:
+                            browser_opened = False
+                            browser_error = str(exc)
+                        if browser_opened:
+                            status_var.set(
+                                "Drive requiere acceso. Se abrió la carpeta en el "
+                                "navegador para que inicies sesión o revises los "
+                                "permisos. Después, configura “Cualquier persona "
+                                "con el enlace” y vuelve a analizar."
+                            )
+                    messagebox.showerror(
+                        "Acceso a Google Drive",
+                        (
+                            f"{event[1]}\n\n"
+                            + (
+                                "Se abrió el enlace en el navegador."
+                                if browser_opened
+                                else "No se pudo abrir el navegador automáticamente."
+                            )
+                            + " Inicia sesión allí si Google lo solicita y revisa "
+                            "los permisos de la carpeta. Esta aplicación no recibe "
+                            "esa sesión; para descargar, habilita “Cualquier "
+                            "persona con el enlace” y vuelve a analizar."
+                            + (
+                                f"\n\nDetalle al abrir el navegador: {browser_error}"
+                                if browser_error
+                                else ""
+                            )
+                            if event[2]
+                            else event[1]
+                        ),
+                        parent=window,
+                    )
+                elif event_type == "current":
+                    status_var.set(
+                        f"Descargando archivo {event[1] + 1} de "
+                        f"{len(state['videos'])}: {event[2]}"
+                    )
+                elif event_type == "downloaded":
+                    index, duration = event[1], event[2]
+                    hours, remainder = divmod(int(duration), 3600)
+                    minutes, seconds = divmod(remainder, 60)
+                    video = state["videos"][index]
+                    video_list.delete(index)
+                    video_list.insert(
+                        index,
+                        f"{video.display_name} — "
+                        f"{hours:02d}:{minutes:02d}:{seconds:02d}",
+                    )
+                    progress.config(value=index + 1)
+                    status_var.set(
+                        f"Verificados {index + 1} de {len(state['videos'])} MP4."
+                    )
+                elif event_type == "download_error":
+                    index, error_message = event[1], event[2]
+                    video = state["videos"][index]
+                    video_list.delete(index)
+                    video_list.insert(
+                        index,
+                        f"{video.display_name} — error al leer/descargar",
+                    )
+                    status_var.set(
+                        f"Proceso detenido en el archivo {index + 1}: {error_message}"
+                    )
+                    set_busy(False)
+                    messagebox.showerror(
+                        "Error durante la descarga",
+                        error_message,
+                        parent=window,
+                    )
+                elif event_type == "download_complete":
+                    set_busy(False)
+                    progress.config(value=event[1])
+                    status_var.set(
+                        f"Listo: {event[1]} MP4 descargados. "
+                        f"Carpeta: {destination_var.get()}"
+                    )
+                    messagebox.showinfo(
+                        "Descarga completa",
+                        status_var.get(),
+                        parent=window,
+                    )
+            window.after(100, process_events)
+
+        def close_window():
+            if state["busy"]:
+                messagebox.showinfo(
+                    "Proceso en curso",
+                    "Espera a que termine el análisis o la descarga antes de cerrar.",
+                    parent=window,
+                )
+                return
+            window.destroy()
+
+        window.protocol("WM_DELETE_WINDOW", close_window)
+        window.after(100, process_events)
+
     # ------------------------------------------------------------------
     # Formato de video
     # ------------------------------------------------------------------
@@ -1002,11 +1190,15 @@ class RecorderApp:
 
         if want_audio:
             self.audio_thread = threading.Thread(
-                target=self._record_audio_loop,
+                target=record_system_audio,
                 args=(
                     self._audio_tmp,
                     self._capture_start_event,
                     self._audio_ready_event,
+                    lambda: self.recording,
+                    lambda: self.paused,
+                    self._mark_audio_recording_started,
+                    AUDIO_CHUNK,
                 ),
                 daemon=True,
             )
@@ -1269,57 +1461,8 @@ class RecorderApp:
             except Exception:
                 proc.kill()
 
-    def _record_audio_loop(self, audio_path, start_event, ready_event):
-        p = None
-        stream = None
-        try:
-            p = pyaudio.PyAudio()
-            device = get_loopback_device(p)
-            if device is None:
-                return
-
-            channels = max(1, int(device["maxInputChannels"]))
-            rate = int(device["defaultSampleRate"])
-
-            stream = p.open(
-                format=pyaudio.paInt16,
-                channels=channels,
-                rate=rate,
-                input=True,
-                input_device_index=device["index"],
-                frames_per_buffer=AUDIO_CHUNK,
-            )
-
-            ready_event.set()
-            while self.recording and not start_event.wait(0.1):
-                pass
-            if not self.recording:
-                return
-
-            self._recording_audio = True
-            frames = []
-            while self.recording:
-                try:
-                    data = stream.read(AUDIO_CHUNK, exception_on_overflow=False)
-                except Exception:
-                    break
-                # Mientras está en pausa seguimos leyendo el stream (para que no
-                # se desborde el buffer) pero descartamos el audio capturado.
-                if not self.paused:
-                    frames.append(data)
-
-            with wave.open(audio_path, "wb") as wf:
-                wf.setnchannels(channels)
-                wf.setsampwidth(p.get_sample_size(pyaudio.paInt16))
-                wf.setframerate(rate)
-                wf.writeframes(b"".join(frames))
-        finally:
-            ready_event.set()
-            if stream is not None:
-                stream.stop_stream()
-                stream.close()
-            if p is not None:
-                p.terminate()
+    def _mark_audio_recording_started(self):
+        self._recording_audio = True
 
     def stop_recording(self):
         if not self.recording:
@@ -1372,7 +1515,7 @@ class RecorderApp:
 
             if has_audio_file:
                 self._finalize_queue.put(("status", "Combinando audio y video..."))
-                mux_succeeded = self._mux_audio(
+                mux_succeeded = mux_audio(
                     self._video_tmp,
                     self._audio_tmp,
                     self.output_path,
@@ -1460,71 +1603,6 @@ class RecorderApp:
             self._set_timer_state("GUARDADO", "#34d399")
         else:
             self._set_timer_state("ERROR", "#fb7185")
-
-    def _mux_audio(self, video_path, audio_path, out_path, fmt, progress_queue):
-        """Añade la pista de audio al video ya codificado (copia el video
-        tal cual) y corrige la pequeña deriva entre los relojes de captura."""
-        try:
-            with wave.open(audio_path, "rb") as audio_file:
-                audio_duration = audio_file.getnframes() / audio_file.getframerate()
-
-            video = cv2.VideoCapture(video_path)
-            try:
-                fps = video.get(cv2.CAP_PROP_FPS)
-                frame_count = video.get(cv2.CAP_PROP_FRAME_COUNT)
-            finally:
-                video.release()
-            if fps <= 0 or frame_count <= 0 or audio_duration <= 0:
-                return False
-
-            video_duration = frame_count / fps
-            duration_delta = audio_duration - video_duration
-            audio_tempo = (
-                audio_duration / video_duration
-                if abs(duration_delta) > 0.02
-                else 1.0
-            )
-            audio_filter = (
-                f"atempo={audio_tempo:.12f},"
-                f"atrim=duration={video_duration:.6f},"
-                "asetpts=PTS-STARTPTS"
-            )
-
-            ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
-            cmd = [
-                ffmpeg_exe, "-y",
-                "-i", video_path,
-                "-i", audio_path,
-                "-c:v", "copy",
-            ] + fmt["audio_args"] + [
-                "-af", audio_filter,
-                "-progress", "pipe:1",
-                "-nostats",
-                out_path,
-            ]
-
-            proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                text=True,
-                bufsize=1,
-            )
-            if proc.stdout is None:
-                proc.kill()
-                return False
-
-            for line in proc.stdout:
-                key, separator, value = line.strip().partition("=")
-                if separator and key == "out_time_ms" and video_duration > 0:
-                    elapsed = int(value) / 1_000_000
-                    percent = min(99, int(elapsed * 100 / video_duration))
-                    progress_queue.put(("progress", percent))
-
-            proc.wait()
-            return proc.returncode == 0 and os.path.exists(out_path)
-        except (OSError, ValueError, ZeroDivisionError, wave.Error):
-            return False
 
     def _cleanup_temp_files(self):
         for path in (self._video_tmp, self._audio_tmp):
