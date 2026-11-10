@@ -1,5 +1,6 @@
 """Captura del audio de salida del sistema mediante WASAPI loopback."""
 
+import time
 import wave
 
 try:
@@ -76,13 +77,45 @@ def record_system_audio(
 
         on_started()
         frames = []
+        # El loopback no entrega datos mientras no suena nada y un read()
+        # normal se bloquea para siempre: solo se lee lo ya disponible y los
+        # silencios se rellenan para que el audio dure lo mismo que el video.
+        silence = b"\x00" * (chunk_size * channels * audio.get_sample_size(pyaudio.paInt16))
+        start = time.monotonic()
+        paused_total = 0.0
+        pause_start = None
+        written = 0
         while is_recording():
+            now = time.monotonic()
             try:
-                data = stream.read(chunk_size, exception_on_overflow=False)
+                available = stream.get_read_available()
+                if is_paused():
+                    if pause_start is None:
+                        pause_start = now
+                    if available >= chunk_size:
+                        stream.read(chunk_size, exception_on_overflow=False)
+                    else:
+                        time.sleep(0.01)
+                    continue
+                if pause_start is not None:
+                    paused_total += now - pause_start
+                    pause_start = None
+
+                if available >= chunk_size:
+                    frames.append(
+                        stream.read(chunk_size, exception_on_overflow=False)
+                    )
+                    written += chunk_size
+                    continue
             except Exception:
                 break
-            if not is_paused():
-                frames.append(data)
+
+            expected = (now - start - paused_total) * rate
+            if expected - written >= chunk_size + rate * 0.2:
+                frames.append(silence)
+                written += chunk_size
+            else:
+                time.sleep(0.005)
 
         with wave.open(audio_path, "wb") as wav_file:
             wav_file.setnchannels(channels)
